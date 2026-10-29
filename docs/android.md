@@ -74,7 +74,7 @@ and tail-call the IMP. It supports super dispatch and nil scalar/FP/HFA returns.
 Large indirect results preserve x8. The cache layout, selector hash, and IMP
 encoding have compile-time checks against the C++ implementation.
 
-The Android synchronization mechanism is a table of 256 cache-line-aligned
+The Android synchronization mechanism is a table of 256 64-byte-aligned
 reader/writer shards, selected from the class address. Readers increment a
 shared count before accessing any buckets and decrement it before invoking an
 IMP or entering the slow path. Writers close admission, drain existing readers,
@@ -106,11 +106,14 @@ integration is replaced by Android logcat/stderr diagnostics.
 
 ## Validation
 
-Initial native testing uses the existing Android 16 / API 36 arm64 emulator,
-with a 4 KB kernel page size. ELF outputs request 16 KB segment alignment; an
-actual 16 KB kernel and physical devices still require validation.
+Native testing covers Android 16 / API 36 arm64 emulators with both 4 KB and
+16 KB kernel page sizes. The official `google_apis_ps16k` image was booted and
+`getconf PAGESIZE` returned `16384`; both Debug and Release passed the runtime
+and concurrent cache suites there. The fill-before-free cache diagnostic also
+passed on both kernel page sizes. ELF outputs request 16 KB segment alignment.
+Physical devices still require validation.
 
-Both Debug and Release passed the native suite on this emulator. A separate
+Both Debug and Release also passed the native suite on the 4 KB emulator. A separate
 parent CMake project also compiled, linked, and ran an ARC client using the
 integration example above. GitHub Actions builds both configurations; device
 execution currently uses the local adb test script.
@@ -145,6 +148,19 @@ the latter disables cache-hit lookup. Thread creation/join time is included in
 the four-thread number. Emulator measurements are useful for comparisons,
 not physical-device performance claims.
 
+For example, on the local Android 16 / API 36 arm64 emulator with a 4 KB kernel,
+NDK 29 Release, one million aggregate calls per sample, and seven samples
+(2026-10-29), the benchmark reported:
+
+| Mode | Single-thread ns/call | Four-thread ns/aggregate call |
+| --- | ---: | ---: |
+| Guarded cache | 6.47 | 16.95 |
+| Fast path disabled | 9.85 | 24.29 |
+
+Direct IMP calls were 0.70–0.71 ns/call in the same runs. The guarded path
+reduced elapsed time by about 34% and 30%, respectively. These are one emulator's
+measurements and will vary with device, scheduling, and workload.
+
 ## Remaining work
 
 - Further cache-hit optimization, especially atomic-counter contention between
@@ -154,7 +170,7 @@ not physical-device performance claims.
 - Complete private image enumeration APIs, including opaque `dlopen` handles.
 - Full fork behavior, sanitizers, memory pressure, long-running stress, and
   mixed Objective-C/C++ exception validation.
-- Physical-device and 16 KB kernel testing, other Android architectures,
+- Physical-device testing, other Android architectures,
   installation/exported CMake packages, and broader upstream test adaptation.
 - Windows and WebAssembly backends.
 
