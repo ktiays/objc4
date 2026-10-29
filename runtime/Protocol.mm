@@ -32,7 +32,9 @@
 
 #include <stdlib.h>
 #include <string.h>
+#if !defined(__ANDROID__)
 #include <mach-o/dyld.h>
+#endif
 
 #include "Protocol.h"
 #include "NSObject.h"

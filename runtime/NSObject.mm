@@ -30,15 +30,19 @@
 #include <malloc/malloc.h>
 #include <stdint.h>
 #include <stdbool.h>
+#if !defined(__ANDROID__)
 #include <mach-o/dyld.h>
 #include <mach-o/nlist.h>
+#endif
 #include <sys/types.h>
 #include <Block.h>
 #include <map>
 #include "NSObject-internal.h"
 #include "NSObject-private.h"
 
+#if !defined(__ANDROID__)
 #include <mach/mach.h>
+#endif
 #include <sys/mman.h>
 
 #include <os/feature_private.h>
@@ -115,10 +119,20 @@ extern "C" void swift_release(id);
 
 ALWAYS_INLINE
 static void _initializeSwiftRefcounting() {
+#if defined(__ANDROID__)
+    auto retain = reinterpret_cast<id (*)(id)>(dlsym(RTLD_DEFAULT, "swift_retain"));
+    auto release = reinterpret_cast<void (*)(id)>(dlsym(RTLD_DEFAULT, "swift_release"));
+    if (!retain || !release) {
+        _objc_fatal("Swift object used without a loaded Swift runtime");
+    }
+    swiftRetain.store(retain, memory_order_relaxed);
+    swiftRelease.store(release, memory_order_relaxed);
+#else
     swiftRetain.store(swift_retain, memory_order_relaxed);
     ASSERT(swiftRetain.load(memory_order_relaxed));
     swiftRelease.store(swift_release, memory_order_relaxed);
     ASSERT(swiftRelease.load(memory_order_relaxed));
+#endif
 }
 
 static id _initializeSwiftRefcountingThenCallRetain(id objc) {
@@ -322,7 +336,11 @@ static bool weakTableScan() {
 }
 
 static void *weakTableScanThread(void *) {
+#if defined(__ANDROID__)
+    pthread_setname_np(pthread_self(), "ObjC weak scan");
+#else
     pthread_setname_np("ObjC weak reference scanner");
+#endif
 
     struct timespec sleepInterval = { 0, 1000000 };
     char *intervalStr = getenv("OBJC_DEBUG_SCAN_WEAK_TABLES_INTERVAL_NANOSECONDS");

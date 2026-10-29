@@ -161,7 +161,9 @@
 #include "objc-malloc-instance.h"
 #include <objc/message.h>
 
+#if !defined(__ANDROID__)
 #include <os/linker_set.h>
+#endif
 
 /***********************************************************************
 * Information about multi-thread support:
@@ -913,8 +915,8 @@ inform_duplicate(const char *name, Class oldCls, Class newCls)
     const header_info *newHeader = _headerForClass(newCls);
     const char *oldName = oldHeader ? oldHeader->fname() : "??";
     const char *newName = newHeader ? newHeader->fname() : "??";
+#if !defined(__ANDROID__)
     const objc_duplicate_class **_dupi = NULL;
-
     LINKER_SET_FOREACH(_dupi, const objc_duplicate_class **, "__objc_dupclass") {
         const objc_duplicate_class *dupi = *_dupi;
 
@@ -922,6 +924,7 @@ inform_duplicate(const char *name, Class oldCls, Class newCls)
             return;
         }
     }
+#endif
 
     OBJC_DEBUG_OPTION_REPORT_ERROR(DebugDuplicateClasses,
          "Class %s is implemented in both %s (%p) and %s (%p). "

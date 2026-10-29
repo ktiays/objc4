@@ -31,6 +31,7 @@
 // classlist and catlist and protolist sections are marked const here
 // because those sections may be in read-only __DATA_CONST segments.
 
+#if !defined(__ANDROID__)
 static inline void
 foreach_data_segment(const headerType *mhdr,
                      std::function<void(const segmentType *, intptr_t slide)> code)
@@ -61,5 +62,16 @@ foreach_data_segment(const headerType *mhdr,
         seg = (const segmentType *)((char *)seg + seg->cmdsize);
     }
 }
+#else
+static inline void
+foreach_data_segment(const headerType *header,
+                     std::function<void(const segmentType *, intptr_t)> code)
+{
+    auto image = reinterpret_cast<const objc_android_image *>(header);
+    for (size_t i = 0; i < image->rangeCount; ++i) {
+        code(&image->ranges[i], 0);
+    }
+}
+#endif
 
 #endif

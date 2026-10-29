@@ -164,6 +164,47 @@ bool _objc_exception_do_catch(struct objc_typeinfo *catch_tinfo,
 // Hand-built vtable for objc exception typeinfo.
 // "OLD" is GNU libcpp, "NEW" is libc++abi.
 
+#if defined(__ANDROID__)
+asm(
+    "\n .pushsection .rodata,\"a\",@progbits"
+    "\n l_.id_str: .asciz \"id\""
+
+    "\n .popsection\n .pushsection .data.rel.ro,\"aw\",@progbits"
+    "\n .globl OBJC_EHTYPE_id"
+    "\n .globl objc_ehtype_vtable"
+    "\n .p2align 4"
+
+    "\n OBJC_EHTYPE_id:"
+    "\n  " PTR "(objc_ehtype_vtable+" TWOPTRSIZE ") "      VTABLE_PTR_AUTH
+    "\n  " PTR "l_.id_str"
+    "\n  " PTR "0"
+
+    "\n objc_ehtype_vtable:"
+    "\n  " PTR "0"
+    // typeinfo's typeinfo - fixme hack
+    "\n  " PTR "OBJC_EHTYPE_id"
+    // destructor and in-place destructor
+    "\n  " PTR "_objc_exception_noop"      VTABLE_ENTRY_AUTH(52634)
+    "\n  " PTR "_objc_exception_noop"      VTABLE_ENTRY_AUTH(10344)
+    // OLD __is_pointer_p
+    "\n  " PTR "_objc_exception_noop"      VTABLE_ENTRY_AUTH(6889)
+    // OLD __is_function_p
+    "\n  " PTR "_objc_exception_noop"      VTABLE_ENTRY_AUTH(23080)
+    // OLD __do_catch,  NEW can_catch
+    "\n  " PTR "_objc_exception_do_catch"  VTABLE_ENTRY_AUTH(27434)
+    // OLD __do_upcast, NEW search_above_dst
+    "\n  " PTR "_objc_exception_false"     VTABLE_ENTRY_AUTH(48481)
+    //                  NEW search_below_dst
+    "\n  " PTR "_objc_exception_false"     VTABLE_ENTRY_AUTH(41165)
+    // NEW has_unambiguous_public_base (fixme need this?)
+    "\n  " PTR "_objc_exception_abort1"    VTABLE_ENTRY_AUTH(14357)
+    // paranoia: die if libcxxabi adds anything else
+    "\n  " PTR "_objc_exception_abort2"
+    "\n  " PTR "_objc_exception_abort3"
+    "\n  " PTR "_objc_exception_abort4"
+    "\n .popsection"
+    );
+#else
 asm(
     "\n .cstring"
     "\n l_.id_str: .asciz \"id\""
@@ -202,6 +243,7 @@ asm(
     "\n  " PTR "__objc_exception_abort3"
     "\n  " PTR "__objc_exception_abort4"
     );
+#endif
 
 
 

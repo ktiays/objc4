@@ -31,6 +31,13 @@
 #include <stddef.h>
 #include <sys/types.h>
 
+// Explicit assembler labels need the object format's C symbol prefix.
+#if defined(__APPLE__)
+#define OBJC_ASM_SYMBOL(name) "_" #name
+#else
+#define OBJC_ASM_SYMBOL(name) #name
+#endif
+
 #ifndef __has_feature
 #   define __has_feature(x) 0
 #endif

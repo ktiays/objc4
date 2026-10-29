@@ -473,7 +473,7 @@ OBJC_EXPORT void _objc_setHook_msgSendCacheMiss(
 
 // Tagged pointer objects.
 
-#if __LP64__
+#if __LP64__ && !defined(__ANDROID__)
 #define OBJC_HAVE_TAGGED_POINTERS 1
 #endif
 
@@ -1115,17 +1115,17 @@ objc_sync_try_enter(id _Nonnull obj)
 
 OBJC_EXPORT id _Nullable
 objc_retain(id _Nullable obj)
-    __asm__("_objc_retain")
+    __asm__(OBJC_ASM_SYMBOL(objc_retain))
     OBJC_AVAILABLE(10.7, 5.0, 9.0, 1.0, 2.0);
 
 OBJC_EXPORT void
 objc_release(id _Nullable obj)
-    __asm__("_objc_release")
+    __asm__(OBJC_ASM_SYMBOL(objc_release))
     OBJC_AVAILABLE(10.7, 5.0, 9.0, 1.0, 2.0);
 
 OBJC_EXPORT id _Nullable
 objc_autorelease(id _Nullable obj)
-    __asm__("_objc_autorelease")
+    __asm__(OBJC_ASM_SYMBOL(objc_autorelease))
     OBJC_AVAILABLE(10.7, 5.0, 9.0, 1.0, 2.0);
 
 // Prepare a value at +1 for return through a +0 autoreleasing convention.
@@ -1312,7 +1312,9 @@ OBJC_EXPORT void _objc_addWillInitializeClassFunc(_objc_func_willInitializeClass
     OBJC_AVAILABLE(10.15, 13.0, 13.0, 6.0, 4.0);
 
 // Replicate the conditionals in objc-config.h for packed isa, indexed isa, and preopt caches
-#if __ARM_ARCH_7K__ >= 2  ||  (__arm64__ && !__LP64__) || \
+#if defined(__ANDROID__)
+#define OBJC_WEAK_FORMATION_CALLOUT_DEFINED 0
+#elif __ARM_ARCH_7K__ >= 2  ||  (__arm64__ && !__LP64__) || \
     !(!__LP64__  ||  \
      (TARGET_OS_SIMULATOR && !TARGET_OS_MACCATALYST && !__arm64__))
 OBJC_EXPORT const uintptr_t _objc_has_weak_formation_callout;

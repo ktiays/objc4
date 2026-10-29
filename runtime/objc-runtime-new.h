@@ -129,7 +129,12 @@
 //   _tryRetain/_isDeallocating/retainWeakReference/allowsWeakReference
 #define FAST_HAS_DEFAULT_RR     (1UL<<2)
 // data pointer
-#if   TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+#if defined(__ANDROID__)
+// Preserve Bionic's tagged heap pointers. The high bit cannot double as a
+// realized-class flag on this platform; use the existing flags-based fallback.
+#define FAST_DATA_MASK          (~7UL)
+#define DEBUG_DATA_MASK         FAST_DATA_MASK
+#elif TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
 #define FAST_DATA_MASK          0x0f00007ffffffff8UL
 #define DEBUG_DATA_MASK         0x0000007ffffffff8UL
 #else
@@ -145,7 +150,11 @@ static_assert((OBJC_VM_MAX_ADDRESS & FAST_DATA_MASK)
 #define FAST_FLAGS_MASK         0x0000000000000007UL
 
 // this bit tells us *quickly* that it's a pointer to an rw, not an ro
+#if defined(__ANDROID__)
+#define FAST_IS_RW_POINTER      0
+#else
 #define FAST_IS_RW_POINTER      0x8000000000000000UL
+#endif
 
 #else
 
@@ -199,9 +208,11 @@ enum IMPEncoding { Encoded = true, Raw = false };
 // Strip TBI bits. We'll only use the top four bits at most so only strip those.
 // Does nothing on targets that don't have TBI.
 static inline void *stripTBI(void *p) {
-#if __arm64__
+#if __arm64__ && !defined(__ANDROID__)
     return (void *)((uintptr_t)p & 0x0fffffffffffffff);
 #else
+    // Android owns the top-byte allocation tag. No method-list flags are
+    // stored there on this backend, and Bionic requires the original tag.
     return p;
 #endif
 }

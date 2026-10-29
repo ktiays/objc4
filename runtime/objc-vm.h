@@ -40,7 +40,15 @@
 
 #include <TargetConditionals.h>
 
-#if __has_include(<mach/vm_param.h>)
+#if defined(__ANDROID__)
+// Runtime allocation pages, not a claim about the kernel's mmap page size.
+// Android VM operations must query sysconf(_SC_PAGESIZE).
+#  define PAGE_SIZE       16384
+#  define PAGE_MIN_SIZE   4096
+#  define PAGE_MAX_SIZE   16384
+#  define PAGE_MAX_SHIFT  14
+#  define OBJC_VM_MAX_ADDRESS  0x0000fffffffffff8ULL
+#elif __has_include(<mach/vm_param.h>)
 #  include <mach/vm_param.h>
 
 #  define OBJC_VM_MAX_ADDRESS    MACH_VM_MAX_ADDRESS

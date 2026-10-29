@@ -109,7 +109,11 @@
     ptrauth_auth_and_resign(std::bit_cast<castType>(value), oldKey, oldData, newKey, newData)
 
 // Method lists use process-independent signature for compatibility.
+#if __has_feature(ptrauth_calls)
 using MethodListIMP = IMP __ptrauth_objc_method_list_imp;
+#else
+using MethodListIMP = IMP;
+#endif
 
 //
 static inline struct method_t *_method_auth(Method mSigned) {

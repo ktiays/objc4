@@ -108,7 +108,7 @@ static inline uintptr_t mask16ShiftBits(uint16_t mask)
 }
 }
 
-#if TARGET_OS_MAC
+#if TARGET_OS_MAC || defined(__ANDROID__)
 
 #   define OS_UNFAIR_LOCK_INLINE 1
 
@@ -134,12 +134,15 @@ static inline uintptr_t mask16ShiftBits(uint16_t mask)
 #   include <syslog.h>
 #   include <unistd.h>
 #   include <pthread.h>
+#if !defined(__ANDROID__)
 #   include <crt_externs.h>
+#endif
 #   undef check
 #   include <sys/mman.h>
 #   include <sys/time.h>
 #   include <sys/stat.h>
 #   include <sys/param.h>
+#if !defined(__ANDROID__)
 #   include <sys/reason.h>
 #   include <mach/mach.h>
 #   include <mach/mach_time.h>
@@ -157,6 +160,11 @@ static inline uintptr_t mask16ShiftBits(uint16_t mask)
 #   include <os/lock_private.h>
 #   include <libkern/OSCacheControl.h>
 #   include <System/pthread_machdep.h>
+#else
+#   include <malloc.h>
+#   include <time.h>
+#   include <unistd.h>
+#endif
 
 #   include "objc-probes.h"  // generated dtrace probe definitions.
 
@@ -296,9 +304,9 @@ T AtomicDecrement(volatile T *value)
         std::memory_order_seq_cst);
 }
 
-#if !TARGET_OS_IPHONE
+#if !TARGET_OS_IPHONE && !defined(__ANDROID__)
 #       include <CrashReporterClient.h>
-#else
+#elif !defined(__ANDROID__)
     // CrashReporterClient not yet available on iOS
     __BEGIN_DECLS
     extern const char *CRSetCrashLogMessage(const char *msg);
@@ -446,6 +454,8 @@ static T* getSectionData(const headerType* mhdr,
 extern int secure_open(const char *filename, int flags, uid_t euid);
 #endif
 
+#elif defined(__ANDROID__)
+#include "objc-android-os.h"
 #else
 
 
@@ -502,12 +512,17 @@ ustrdupMaybeNil(const uint8_t *str)
 // This version order matches OBJC_AVAILABLE.
 //
 // NOTE: prefer dyld_program_sdk_at_least when possible
+#if defined(__ANDROID__)
+// Android modules have no legacy Apple SDK compatibility behavior.
+#define sdkIsAtLeast(x, i, t, w, b) true
+#else
 #define sdkIsAtLeast(x, i, t, w, b)                                    \
     (dyld_program_sdk_at_least(dyld_platform_version_macOS_ ## x)   || \
      dyld_program_sdk_at_least(dyld_platform_version_iOS_ ## i)     || \
      dyld_program_sdk_at_least(dyld_platform_version_tvOS_ ## t)    || \
      dyld_program_sdk_at_least(dyld_platform_version_watchOS_ ## w) || \
      dyld_program_sdk_at_least(dyld_platform_version_bridgeOS_ ## b))
+#endif
 
 
 // If we don't have asprintf(), use our own implementation instead
@@ -520,7 +535,7 @@ int _objc_asprintf(char **strp, const char *fmt, ...);
 #endif // HAVE_ASPRINTF
 
 
-#ifndef __BUILDING_OBJCDT__
+#if !defined(__BUILDING_OBJCDT__) && TARGET_OS_MAC
 // fork() safety requires careful tracking of all locks.
 // Our custom lock types check this in debug builds.
 // Disallow direct use of all other lock types.

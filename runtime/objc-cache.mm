@@ -216,6 +216,15 @@ static void recordDeadCache(mask_t capacity)
 
 // "cache" is cache->buckets; "vtable" is cache->mask/occupied
 // hack to avoid conflicts with compiler's internal declaration
+#if defined(__ANDROID__)
+asm("\n .section .rodata,\"a\",@progbits"
+    "\n .globl _objc_empty_vtable"
+    "\n .set _objc_empty_vtable, 0"
+    "\n .globl _objc_empty_cache"
+    "\n .p2align 4"
+    "\n _objc_empty_cache: .space " stringize2(EMPTY_BYTES)
+    "\n .text");
+#else
 asm("\n .section __TEXT,__const"
     "\n .globl __objc_empty_vtable"
     "\n .set __objc_empty_vtable, 0"
@@ -229,6 +238,7 @@ asm("\n .section __TEXT,__const"
     "\n __objc_empty_cache: .space " stringize2(EMPTY_BYTES)
 #endif
     );
+#endif
 
 #if CONFIG_USE_PREOPT_CACHES || CONFIG_USE_PREOPT_CACHES_BUILD_ONLY
 __attribute__((used, section("__DATA_CONST,__objc_scoffs")))
@@ -603,7 +613,7 @@ void cache_t::setBucketsAndMask(struct bucket_t *newBuckets, mask_t newMask)
 
     _mask.store(newMask, memory_order_relaxed);
     _occupied = 0;
-#elif __x86_64__ || i386
+#elif __x86_64__ || i386 || defined(__ANDROID__)
     // ensure other threads see buckets contents before buckets pointer
     _bucketsAndMaybeMask.store((uintptr_t)newBuckets, memory_order_release);
 
@@ -1036,6 +1046,7 @@ void cache_t::destroy()
 // Must not be zero - thread_get_state() on a new thread returns PC == 0.
 #define PC_SENTINEL  1
 
+#if !defined(__ANDROID__)
 static uintptr_t _get_pc_for_thread(thread_t thread)
 #if defined(__i386__)
 {
@@ -1070,6 +1081,7 @@ static uintptr_t _get_pc_for_thread(thread_t thread)
 #error _get_pc_for_thread () not implemented for this architecture
 }
 #endif
+#endif // !__ANDROID__
 
 
 /***********************************************************************
@@ -1141,7 +1153,9 @@ void cache_t::init()
 
 static int _collecting_in_critical(void)
 {
-
+#if defined(__ANDROID__)
+    return true;
+#else
 #if HAVE_TASK_RESTARTABLE_RANGES
     // Only use restartable ranges if we registered them earlier.
     if (shouldUseRestartableRanges) {
@@ -1230,7 +1244,7 @@ static int _collecting_in_critical(void)
 
     // Return our finding
     return result;
-
+#endif
 }
 
 
@@ -1313,6 +1327,11 @@ void cache_t::collect_free(bucket_t *data, mask_t capacity)
 **********************************************************************/
 void cache_t::collectNolock(bool collectALot)
 {
+#if defined(__ANDROID__)
+    // Until Android has a proven cache-reader quiescence protocol, retain
+    // retired buckets. Never claim that a nonexistent Mach barrier succeeded.
+    return;
+#endif
 #if CONFIG_USE_CACHE_LOCK
     lockdebug::assert_locked(&cacheUpdateLock);
 #else

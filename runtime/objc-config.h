@@ -55,11 +55,15 @@
 #endif
 
 // Define SUPPORT_PREOPT=1 to enable dyld shared cache optimizations
+#if defined(__ANDROID__)
+#   define SUPPORT_PREOPT 0
+#else
 #   define SUPPORT_PREOPT 1
+#endif
 
 // Define SUPPORT_TAGGED_POINTERS=1 to enable tagged pointer objects
 // Be sure to edit tagged pointer SPI in objc-internal.h as well.
-#if !__LP64__
+#if !__LP64__ || defined(__ANDROID__)
 #   define SUPPORT_TAGGED_POINTERS 0
 #else
 #   define SUPPORT_TAGGED_POINTERS 1
@@ -86,7 +90,7 @@
 
 // Define SUPPORT_PACKED_ISA=1 on platforms that store the class in the isa 
 // field as a maskable pointer with other data around it.
-#if (!__LP64__  ||  \
+#if (defined(__ANDROID__) || !__LP64__  ||  \
      (TARGET_OS_SIMULATOR && !TARGET_OS_MACCATALYST && !__arm64__))
 #   define SUPPORT_PACKED_ISA 0
 #else
@@ -145,7 +149,7 @@
 #endif
 
 // Define SUPPORT_AUTORELEASEPOOL_DEDDUP_PTRS to combine consecutive pointers to the same object in autorelease pools
-#if !__LP64__
+#if !__LP64__ || defined(__ANDROID__)
 #   define SUPPORT_AUTORELEASEPOOL_DEDUP_PTRS 0
 #else
 #   define SUPPORT_AUTORELEASEPOOL_DEDUP_PTRS 1
@@ -173,7 +177,7 @@
 // elision based on comparing the return address of the call and claim. When 0,
 // we only support the older scheme that inspects the caller's code for a claim
 // call or sentinel NOP.
-#if __arm64__
+#if __arm64__ && !defined(__ANDROID__)
 #   define HAS_RETURNADDR_AUTORELEASE_ELISION 1
 #else
 #   define HAS_RETURNADDR_AUTORELEASE_ELISION 0
@@ -215,7 +219,9 @@
 #define CACHE_MASK_STORAGE_LOW_4 3
 #define CACHE_MASK_STORAGE_HIGH_16_BIG_ADDRS 4
 
-#if defined(__arm64__) && __LP64__
+#if defined(__ANDROID__)
+#define CACHE_MASK_STORAGE CACHE_MASK_STORAGE_OUTLINED
+#elif defined(__arm64__) && __LP64__
 #if   TARGET_OS_OSX || TARGET_OS_SIMULATOR
 #define CACHE_MASK_STORAGE CACHE_MASK_STORAGE_HIGH_16_BIG_ADDRS
 #else
@@ -329,7 +335,7 @@
 #define HAVE_CLOCK_GETTIME_NSEC_NP 0
 #endif
 
-#if   TARGET_OS_MAC
+#if   TARGET_OS_MAC || defined(__ANDROID__)
 #define HAVE_ASPRINTF   1
 #else
 #define HAVE_ASPRINTF   0
@@ -343,6 +349,8 @@
 
 #if   TARGET_OS_MAC
 #   define OBJC_THREADING_PACKAGE OBJC_THREADING_DARWIN
+#elif defined(__ANDROID__)
+#   define OBJC_THREADING_PACKAGE OBJC_THREADING_PTHREADS
 #elif __has_include(<threads.h>)
 #   define OBJC_THREADING_PACKAGE  OBJC_THREADING_C11THREADS
 #elif __has_include(<pthread.h>)

@@ -38,6 +38,7 @@
 #include <Block.h>
 #include <objc/message.h>
 
+#if !defined(__ANDROID__)
 #include <mach/shared_region.h>
 
 extern "C" {
@@ -45,6 +46,7 @@ extern "C" {
 }
 
 #include <malloc_private.h>
+#endif
 
 #if SUPPORT_MUTABLE_SHARED_CACHE
 #include <os/thread_self_restrict.h>
@@ -9758,10 +9760,14 @@ objc_uniformRandom(uint32_t n)
 void *
 _calloc_canonical(size_t size)
 {
+#if defined(__ANDROID__)
+    return calloc(1, size);
+#else
     malloc_zone_malloc_options_t options = MALLOC_ZONE_MALLOC_OPTION_CLEAR;
     size = objc::RoundUpToAlignment(size, MALLOC_ZONE_MALLOC_DEFAULT_ALIGN);
     return malloc_zone_malloc_with_options(NULL,
         MALLOC_ZONE_MALLOC_DEFAULT_ALIGN, size, options);
+#endif
 }
 
 #if SUPPORT_FIXUP
