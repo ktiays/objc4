@@ -26,10 +26,14 @@ The test script uses an already running arm64 device or emulator. Set
 `ANDROID_SERIAL` when multiple devices are connected. Outputs are placed in
 `build/android-arm64-Debug` or `build/android-arm64-Release`.
 
-This is an experimental first port, with a correctness-first dispatcher and
-deliberately conservative cache/image lifetimes. See
+This experimental port has an assembly cache-hit dispatcher with sharded
+reader/writer protection and synchronous retirement of old cache arrays.
+Registered ELF images currently remain pinned. See
 [Android architecture, integration, validation and limitations](docs/android.md)
 before embedding it in an application.
+
+Run `./scripts/benchmark-android.sh` to compare Release cache-hit dispatch
+against a build with the cache fast path disabled on the same device.
 
 ## Keeping the upstream current
 

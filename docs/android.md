@@ -66,16 +66,34 @@ release their own `dlopen` handles.
 
 ## Dispatch and object lifetime
 
-The AAPCS64 dispatcher saves argument registers x0–x8 and v0–v7, asks upstream
-objc4 to find/initialize/resolve the method, restores the original arguments,
-and tail-calls the IMP. It supports super dispatch and nil scalar/FP/HFA
-returns. Large indirect results preserve x8. It currently bypasses the native
-lock-free cache fast path.
+The AAPCS64 dispatcher probes the upstream method cache in assembly and
+tail-calls a cached IMP without taking `runtimeLock`, creating a stack frame,
+or saving argument registers. Cache misses save x0–x8 and v0–v7, ask upstream
+objc4 to find/initialize/resolve the method, then restore the original arguments
+and tail-call the IMP. It supports super dispatch and nil scalar/FP/HFA returns.
+Large indirect results preserve x8. The cache layout, selector hash, and IMP
+encoding have compile-time checks against the C++ implementation.
 
-Until an Android cache-reader quiescence protocol is implemented and validated,
-retired method-cache allocations are retained. The port never pretends that a
-missing Mach synchronization operation succeeded. Memory usage can therefore
-grow when caches are invalidated repeatedly.
+The Android synchronization mechanism is a table of 256 cache-line-aligned
+reader/writer shards, selected from the class address. Readers increment a
+shared count before accessing any buckets and decrement it before invoking an
+IMP or entering the slow path. Writers close admission, drain existing readers,
+then mutate entries or publish a new buckets/mask pair. After replacement,
+the old array can be freed immediately; it never enters the Mach retirement
+queue. `cache_getImp` uses the same protocol. Colliding classes share a shard,
+but independent readers can still proceed concurrently.
+
+This is a guarded fast path, not Apple's lock-free restartable-range mechanism.
+Each hit performs two atomic read/modify/write operations, and a preempted reader
+can delay a writer. A reader that sees a pending writer takes the ordinary slow
+path. The protocol prevents retired-cache accumulation, but per-class active
+caches and the upstream shared empty-cache arrays still consume memory. It does
+not synchronize entire method executions or make image unloading safe.
+
+Set `OBJC_ANDROID_CACHE_FASTPATH=OFF` in CMake (or the build script's environment)
+to disable the assembly/C++ cache-hit paths for diagnostics. Safe cache retirement
+remains enabled. `OBJC_DEBUG_SCRIBBLE_CACHES=YES` fills retired arrays before
+freeing them to help expose stale readers.
 
 BlocksRuntime's unmodified copy/dispose algorithms are paired with small objc4
 Block classes and retain/release callbacks. ARC can copy escaping blocks and
@@ -109,15 +127,28 @@ The smoke suite checks:
 - Typed Objective-C exceptions and `@finally` cleanup.
 - Escaping Blocks and captured-object lifetime.
 - Four threads repeatedly allocating, messaging and destroying objects.
+- Cache collisions, complete small caches, probe wraparound, and capacity growth.
+- A deliberately blocked reader that prevents mutation/reclamation until exit.
+- Four readers racing 10,000 method replacements, with synchronous reclamation
+  counters and an optional fill-before-free diagnostic.
 - `dlopen` image registration and method validity after `dlclose`.
 
 This is a focused native suite, not a claim that Apple's entire test harness
 passes on Android.
 
+`scripts/benchmark-android.sh [iterations]` builds and tests Release, runs seven
+samples of message dispatch and direct IMP calls, then repeats the benchmark
+with the fast path disabled in a separate build directory. It reports median
+single-thread latency and four-thread elapsed time per aggregate call. Both
+versions use the same compiler, ABI, method body, and synchronization backend;
+the latter disables cache-hit lookup. Thread creation/join time is included in
+the four-thread number. Emulator measurements are useful for comparisons,
+not physical-device performance claims.
+
 ## Remaining work
 
-- A measured, lock-free Android message-cache fast path and bounded cache
-  reclamation; the initial dispatcher prioritizes correctness over speed.
+- Further cache-hit optimization, especially atomic-counter contention between
+  threads calling the same class; the current guard is not lock-free.
 - Block-to-IMP trampolines (`imp_implementationWithBlock`), generic forwarding
   infrastructure such as NSInvocation, and exhaustive ABI/variadic tests.
 - Complete private image enumeration APIs, including opaque `dlopen` handles.

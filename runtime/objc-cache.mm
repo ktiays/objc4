@@ -80,6 +80,9 @@
 
 
 #include "objc-private.h"
+#if defined(__ANDROID__)
+#include "objc-cache-android.h"
+#endif
 
 #if OBJC_USE_ROSETTA
 #include <Rosetta/Traps.h>
@@ -339,9 +342,15 @@ void bucket_t::set(bucket_t *base, SEL newSel, IMP newImp, Class cls)
                             ? encodeImp(base, newImp, newSel, cls)
                             : (uintptr_t)newImp);
 
+#if defined(__ANDROID__)
+    objc_android_cache_writer writer(cls);
+    _imp.store(encodedImp, memory_order_relaxed);
+    _sel.store(newSel, memory_order_relaxed);
+#else
     // LDP/STP guarantees that all observers get
     // either imp/sel or newImp/newSel
     stp(encodedImp, (uintptr_t)newSel, this);
+#endif
 }
 
 #else
@@ -595,6 +604,12 @@ bool cache_t::isConstantOptimizedCacheWithInlinedSels() const
 
 void cache_t::setBucketsAndMask(struct bucket_t *newBuckets, mask_t newMask)
 {
+#if defined(__ANDROID__)
+    static_assert(offsetof(cache_t, _bucketsAndMaybeMask) == 0);
+    static_assert(offsetof(cache_t, _mask) + offsetof(objc_class, cache) ==
+                  OBJC_ANDROID_CACHE_MASK_OFFSET);
+    objc_android_cache_writer writer(cls());
+#endif
     // objc_msgSend uses mask and buckets with no locks.
     // It is safe for objc_msgSend to see new buckets but old mask.
     // (It will get a cache miss but not overrun the buckets' bounds).
@@ -1031,7 +1046,16 @@ void cache_t::destroy()
 #endif
     if (canBeFreed()) {
         if (PrintCaches) recordDeadCache(capacity());
+#if defined(__ANDROID__)
+        auto oldBuckets = buckets();
+        auto oldCapacity = capacity();
+        setBucketsAndMask(emptyBuckets(), 0);
+        if (DebugScribbleCaches) { memset(oldBuckets, 0xa5, bytesForCapacity(oldCapacity)); }
+        objc_android_cache_record_reclaim(bytesForCapacity(oldCapacity));
+        free(oldBuckets);
+#else
         free(buckets());
+#endif
     }
 }
 
@@ -1313,6 +1337,14 @@ void cache_t::collect_free(bucket_t *data, mask_t capacity)
 
     if (PrintCaches) recordDeadCache(capacity);
 
+#if defined(__ANDROID__)
+    // setBucketsAndMask closed reader admission and drained all users of the
+    // old array before publishing its replacement. New readers cannot reach it.
+    if (DebugScribbleCaches) { memset(data, 0xa5, bytesForCapacity(capacity)); }
+    objc_android_cache_record_reclaim(bytesForCapacity(capacity));
+    free(data);
+    return;
+#endif
     _garbage_make_room ();
     garbage_byte_size += cache_t::bytesForCapacity(capacity);
     garbage_refs[garbage_count++] = data;
@@ -1328,8 +1360,8 @@ void cache_t::collect_free(bucket_t *data, mask_t capacity)
 void cache_t::collectNolock(bool collectALot)
 {
 #if defined(__ANDROID__)
-    // Until Android has a proven cache-reader quiescence protocol, retain
-    // retired buckets. Never claim that a nonexistent Mach barrier succeeded.
+    // Android retires arrays synchronously after its per-shard reader barrier;
+    // no arrays enter the Mach cache-collection queue.
     return;
 #endif
 #if CONFIG_USE_CACHE_LOCK

@@ -179,7 +179,3 @@ void unmap_image_nolock(const mach_header *) {
 bool hasSharedCacheDyldInfo() { return false; }
 Protocol *getSharedCachePreoptimizedProtocol(const char *) { return nil; }
 uintptr_t sharedCacheRelativeMethodBase() { return 0; }
-
-// Every lookup uses the upstream slow path under runtimeLock. No assembly
-// reader accesses cache buckets until an Android cache ABI is validated.
-extern "C" IMP cache_getImp(Class, SEL, IMP) { return nullptr; }

@@ -1,6 +1,7 @@
-// AAPCS64 correctness-first dispatcher for the Android port. Class discovery,
+// AAPCS64 dispatcher for the Android port. Class discovery,
 // realization, +initialize, resolution and method lookup remain in upstream objc4.
 // All argument registers, including x8 (indirect result), survive the lookup.
+#include "objc-cache-android.h"
 .text
 .p2align 2
 .global objc_msgSend
@@ -8,7 +9,7 @@
 objc_msgSend:
     cbz x0, .Lnil
     ldr x16, [x0]
-    b .Llookup
+    b .Lcache_probe
 .size objc_msgSend, .-objc_msgSend
 
 .global objc_msgSendSuper
@@ -17,7 +18,7 @@ objc_msgSendSuper:
     ldr x16, [x0, #8]
     ldr x0, [x0]
     cbz x0, .Lnil
-    b .Llookup
+    b .Lcache_probe
 .size objc_msgSendSuper, .-objc_msgSendSuper
 
 .global objc_msgSendSuper2
@@ -27,8 +28,66 @@ objc_msgSendSuper2:
     ldr x16, [x16, #8]
     ldr x0, [x0]
     cbz x0, .Lnil
-    b .Llookup
+    b .Lcache_probe
 .size objc_msgSendSuper2, .-objc_msgSendSuper2
+
+.macro CacheReadEnd
+91:
+    ldxr w10, [x9]
+    sub w10, w10, #1
+    stlxr w11, w10, [x9]
+    cbnz w11, 91b
+.endm
+
+.type objc4_android_dispatch_cache, %function
+objc4_android_dispatch_cache:
+.Lcache_probe:
+    .cfi_startproc
+#if OBJC_ANDROID_CACHE_FASTPATH
+    // A reader owns only a shard count, never runtimeLock. Preserve all
+    // argument registers, FP/SIMD arguments, SP, and the caller's link register.
+    adrp x9, objc_android_cache_shards
+    add x9, x9, :lo12:objc_android_cache_shards
+    ubfx x10, x16, #4, #OBJC_ANDROID_CACHE_SHARD_BITS
+    add x9, x9, x10, lsl #OBJC_ANDROID_CACHE_SHARD_SHIFT
+.Lcache_read_begin:
+    ldaxr w10, [x9]
+    tbnz w10, #OBJC_ANDROID_CACHE_WRITER_BIT, .Lcache_writer
+    add w10, w10, #1
+    stxr w11, w10, [x9]
+    cbnz w11, .Lcache_read_begin
+
+    ldr w13, [x16, #OBJC_ANDROID_CACHE_MASK_OFFSET]
+    cbz w13, .Lcache_miss
+    ldr x12, [x16, #OBJC_ANDROID_CACHE_BUCKETS_OFFSET]
+    cbz x12, .Lcache_miss
+    eor x14, x1, x1, lsr #7
+    and w14, w14, w13
+    add w15, w13, #1
+.Lcache_scan:
+    add x17, x12, x14, lsl #4
+    ldp x10, x11, [x17]
+    cmp x11, x1
+    b.eq .Lcache_hit
+    cbz x11, .Lcache_miss
+    subs w15, w15, #1
+    b.eq .Lcache_miss
+    sub w14, w14, #1
+    and w14, w14, w13
+    b .Lcache_scan
+.Lcache_hit:
+    eor x17, x10, x16  // CACHE_IMP_ENCODING_ISA_XOR
+    CacheReadEnd
+    br x17
+.Lcache_miss:
+    CacheReadEnd
+    b .Llookup
+.Lcache_writer:
+    clrex
+#endif
+    b .Llookup
+    .cfi_endproc
+.size objc4_android_dispatch_cache, .-objc4_android_dispatch_cache
 
 .type objc4_android_dispatch_lookup, %function
 objc4_android_dispatch_lookup:

@@ -18,5 +18,6 @@ objc_build=${OBJC_ANDROID_BUILD_DIR:-"$objc_root/build/android-arm64-$objc_confi
 cmake -S "$objc_root" -B "$objc_build" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$objc_ndk/build/cmake/android.toolchain.cmake" \
     -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-26 \
-    -DANDROID_STL=c++_shared -DCMAKE_BUILD_TYPE="$objc_configuration"
+    -DANDROID_STL=c++_shared -DCMAKE_BUILD_TYPE="$objc_configuration" \
+    -DOBJC_ANDROID_CACHE_FASTPATH="${OBJC_ANDROID_CACHE_FASTPATH:-ON}"
 cmake --build "$objc_build" --parallel "${OBJC_BUILD_JOBS:-4}"

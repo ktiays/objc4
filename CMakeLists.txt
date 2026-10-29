@@ -15,6 +15,8 @@ set(CMAKE_OBJCXX_STANDARD 20)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(OBJC_APPLE_ABI_VERSION "26.0" CACHE STRING "Apple ObjC ABI/code-generation version used for Android modules")
+option(OBJC_BUILD_ANDROID_TESTS "Build native Android runtime tests" ON)
+option(OBJC_ANDROID_CACHE_FASTPATH "Use guarded assembly cache hits for Android messaging" ON)
 
 set(OBJC_ANDROID_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/platform/android/include")
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/include/objc")
@@ -50,6 +52,7 @@ target_compile_options(objc-core PRIVATE
     -Wno-deprecated-declarations -Wno-unused-command-line-argument)
 
 add_library(objc SHARED
+    platform/android/objc-cache-android.mm
     platform/android/objc-os-android.mm
     platform/android/objc-errors-android.mm
     platform/android/objc-diagnostics-android.cpp
@@ -62,7 +65,9 @@ target_link_libraries(objc PUBLIC objc-core PRIVATE log dl)
 get_target_property(coreOptions objc-core COMPILE_OPTIONS)
 get_target_property(coreDefinitions objc-core COMPILE_DEFINITIONS)
 target_compile_options(objc PRIVATE ${coreOptions})
-target_compile_definitions(objc PRIVATE ${coreDefinitions})
+target_compile_definitions(objc PRIVATE ${coreDefinitions}
+    OBJC_ANDROID_CACHE_FASTPATH=$<BOOL:${OBJC_ANDROID_CACHE_FASTPATH}>
+    OBJC_ANDROID_TESTING=$<BOOL:${OBJC_BUILD_ANDROID_TESTS}>)
 target_include_directories(objc PRIVATE runtime platform/android third-party/BlocksRuntime)
 set_source_files_properties(runtime/objc-exception.mm PROPERTIES COMPILE_OPTIONS "-fexceptions;-fcxx-exceptions")
 target_link_options(objc PRIVATE
@@ -80,7 +85,6 @@ function(objc4_add_android_module target)
     target_link_libraries(${target} PRIVATE objc)
 endfunction()
 
-option(OBJC_BUILD_ANDROID_TESTS "Build native Android runtime tests" ON)
 if(OBJC_BUILD_ANDROID_TESTS)
     add_library(objc4-test-plugin SHARED test/android/plugin.m)
     set_target_properties(objc4-test-plugin PROPERTIES LINKER_LANGUAGE CXX)
@@ -90,4 +94,12 @@ if(OBJC_BUILD_ANDROID_TESTS)
     set_target_properties(objc4-android-smoke PROPERTIES LINKER_LANGUAGE CXX)
     objc4_add_android_module(objc4-android-smoke)
     target_compile_options(objc4-android-smoke PRIVATE -fobjc-arc -UNDEBUG)
+    foreach(test IN ITEMS cache benchmark)
+        add_executable(objc4-android-${test} test/android/${test}.m)
+        set_target_properties(objc4-android-${test} PROPERTIES LINKER_LANGUAGE CXX)
+        objc4_add_android_module(objc4-android-${test})
+        target_compile_options(objc4-android-${test} PRIVATE -fobjc-arc -UNDEBUG)
+    endforeach()
+    target_compile_definitions(objc4-android-benchmark PRIVATE
+        OBJC_ANDROID_CACHE_FASTPATH=$<BOOL:${OBJC_ANDROID_CACHE_FASTPATH}>)
 endif()

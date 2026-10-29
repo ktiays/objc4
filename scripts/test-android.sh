@@ -24,5 +24,7 @@ fi
 objc_remote=/data/local/tmp/objc4-android
 "$objc_adb" shell "mkdir -p $objc_remote"
 "$objc_adb" push "$objc_build/libobjc4.so" "$objc_build/libobjc4-test-plugin.so" \
-    "$objc_build/objc4-android-smoke" "${objc_stl[0]}" "$objc_remote/"
+    "$objc_build/objc4-android-smoke" "$objc_build/objc4-android-cache" \
+    "$objc_build/objc4-android-benchmark" "${objc_stl[0]}" "$objc_remote/"
 "$objc_adb" shell "LD_LIBRARY_PATH=$objc_remote $objc_remote/objc4-android-smoke"
+"$objc_adb" shell "LD_LIBRARY_PATH=$objc_remote $objc_remote/objc4-android-cache"

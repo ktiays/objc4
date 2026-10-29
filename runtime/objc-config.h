@@ -316,8 +316,9 @@
 #endif
 
 // When preopt caches are built, use the better shift-and-xor selector hash to
-// compensate for more regular selector addresses.
-#if CONFIG_USE_PREOPT_CACHES || CONFIG_USE_PREOPT_CACHES_BUILD_ONLY
+// compensate for more regular selector addresses. The Android dispatcher uses
+// the same hash to spread ELF selector addresses through its outlined caches.
+#if CONFIG_USE_PREOPT_CACHES || CONFIG_USE_PREOPT_CACHES_BUILD_ONLY || defined(__ANDROID__)
 #ifdef __arm64__ // msgSend only supports this on ARM64
 #define SEL_HASH_SHIFT_XOR 1
 #endif
