@@ -52,8 +52,19 @@ const struct objc_android_module *objc_android_runtime_module(void) {
     return module_descriptor();
 }
 #else
+#if OBJC_ANDROID_UNLOADABLE_MODULE
+// dlsym(handle, ...) locates this image's descriptor after its constructor ran.
+__attribute__((visibility("protected")))
+const struct objc_android_module *objc_android_module_descriptor_v1(void) {
+    return &module;
+}
+#endif
 __attribute__((constructor(101)))
 static void register_objc_module(void) {
+#if OBJC_ANDROID_UNLOADABLE_MODULE
+    objc_android_register_module_with_flags(module_descriptor(), OBJC_ANDROID_MODULE_UNLOADABLE);
+#else
     objc_android_register_module(module_descriptor());
+#endif
 }
 #endif

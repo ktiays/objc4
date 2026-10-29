@@ -157,6 +157,9 @@
 **********************************************************************/
 
 #include "objc-private.h"
+#if defined(__ANDROID__)
+#include "objc-unload-android.h"
+#endif
 #include "objc-abi.h"
 #include "objc-malloc-instance.h"
 #include <objc/message.h>
@@ -205,7 +208,11 @@ Class object_setClass(id obj, Class cls)
         lookUpImpOrNilTryCache(nil, @selector(initialize), cls, LOOKUP_INITIALIZE);
     }
 
-    return obj->changeIsa(cls);
+    Class previous = obj->changeIsa(cls);
+#if defined(__ANDROID__)
+    objc_android_track_object(obj, cls);
+#endif
+    return previous;
 }
 
 
@@ -895,6 +902,9 @@ _class_createInstances(Class cls, size_t extraBytes, id *results,
                                                OBJECT_CONSTRUCT_FREE_ONFAILURE);
         }
         if (obj) {
+#if defined(__ANDROID__)
+            objc_android_track_object(obj, cls);
+#endif
             results[i-shift] = obj;
         } else {
             shift++;

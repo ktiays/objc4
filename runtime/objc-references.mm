@@ -26,6 +26,9 @@
 
 
 #include "objc-private.h"
+#if defined(__ANDROID__)
+#include "objc-unload-android.h"
+#endif
 #include <objc/message.h>
 #include <map>
 #include "DenseMapExtras.h"
@@ -133,6 +136,15 @@ _objc_associations_init()
 {
     AssociationsManager::init();
 }
+
+#if defined(__ANDROID__)
+// Query only; unloading must not run user deallocators while holding loader or
+// runtime locks. The caller asks the owner to clear these before trying again.
+bool objc_android_class_has_associations(Class cls) {
+    AssociationsManager manager;
+    return manager.get().find((objc_object *)cls) != manager.get().end();
+}
+#endif
 
 id
 _object_get_associative_reference(id object, const void *key)

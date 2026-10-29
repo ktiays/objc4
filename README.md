@@ -28,7 +28,8 @@ The test script uses an already running arm64 device or emulator. Set
 
 This experimental port has an assembly cache-hit dispatcher with sharded
 reader/writer protection and synchronous retirement of old cache arrays.
-Registered ELF images currently remain pinned. See
+Ordinary ELF images remain pinned; opt-in class plugins support controlled
+unloading with execution leases and live-instance checks. See
 [Android architecture, integration, validation and limitations](docs/android.md)
 before embedding it in an application.
 

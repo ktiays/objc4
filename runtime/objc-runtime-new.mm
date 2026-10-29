@@ -30,6 +30,9 @@
 #include "DenseMapExtras.h"
 #include "llvm-MathExtras.h"
 #include "objc-private.h"
+#if defined(__ANDROID__)
+#include "objc-unload-android.h"
+#endif
 #include "objc-malloc-instance.h"
 #include "objc-runtime-new.h"
 #include "objc-file.h"
@@ -4598,6 +4601,82 @@ void prepare_load_methods(const headerType *mhdr, const _dyld_section_location_i
 * Only handles MH_BUNDLE for now.
 * Locking: write-lock and loadMethodLock acquired by unmap_image
 **********************************************************************/
+#if defined(__ANDROID__)
+void objc_android_flush_caches_nolock() {
+    flushCaches(Nil, __func__, [](Class) { return true; });
+}
+
+bool objc_android_image_has_dependencies(header_info *image,
+    bool (*containsAddress)(const void *, const void *), const void *context)
+{
+    lockdebug::assert_locked(&runtimeLock.get());
+    objc::DenseSet<DisguisedPtr<objc_class>> own;
+    for (bool nonlazy : {false, true}) {
+        size_t count = 0;
+        auto classes = nonlazy ? image->nlclslist(&count) : image->classlist(&count);
+        for (size_t i = 0; i < count; ++i) {
+            Class cls = (Class)classes[i];
+            // Replaced/future/duplicate class mappings are outside the first
+            // controlled-unload contract. Never detach someone else's class.
+            if (!cls || remapClass(cls) != cls || !containsAddress(cls, context) ||
+                getClassExceptSomeSwift(cls->mangledName()) != cls) { return true; }
+            own.insert((objc_class *)cls);
+            own.insert((objc_class *)cls->ISA());
+        }
+    }
+    auto owns = [&](Class cls) { return own.count((objc_class *)cls) != 0; };
+    auto methodsDepend = [&](const method_array_t &methods) {
+        for (const auto &method : methods) {
+            if (containsAddress((const void *)method.imp(false), context)) { return true; }
+        }
+        return false;
+    };
+    auto classDepends = [&](Class cls) {
+        if (!cls || owns(cls)) { return false; }
+        // objc_duplicateClass shares the original metaclass even when its
+        // instance methods have all been replaced with other implementations.
+        if (owns(cls->getSuperclass()) || owns(cls->ISA())) { return true; }
+        if (cls->isRealized()) { return methodsDepend(cls->data()->methods()); }
+        auto &base = cls->safe_ro()->baseMethods;
+        if (auto list = base.dyn_cast<method_list_t *>()) {
+            return methodsDepend(method_array_t{list});
+        }
+        if (auto list = base.dyn_cast<relative_list_list_t<method_list_t> *>()) {
+            return methodsDepend(method_array_t{list});
+        }
+        return false;
+    };
+    for (auto header = FirstHeader; header; header = header->getNext()) {
+        if (header == image) { continue; }
+        for (bool nonlazy : {false, true}) {
+            size_t count = 0;
+            auto classes = nonlazy ? header->nlclslist(&count) : header->classlist(&count);
+            for (size_t i = 0; i < count; ++i) {
+                Class cls = remapClass(classes[i]);
+                if (classDepends(cls) || (cls && classDepends(cls->ISA()))) { return true; }
+            }
+        }
+        for (bool super : {false, true}) {
+            size_t count = 0;
+            auto refs = super ? header->superrefs(&count) : header->classrefs(&count);
+            for (size_t i = 0; i < count; ++i) { if (owns(refs[i])) { return true; } }
+        }
+        for (unsigned kind = 0; kind < 3; ++kind) {
+            size_t count = 0;
+            auto categories = kind == 0 ? header->catlist(&count) :
+                              kind == 1 ? header->catlist2(&count) : header->nlcatlist(&count);
+            for (size_t i = 0; i < count; ++i) {
+                if (owns(remapClass(categories[i]->cls))) { return true; }
+            }
+        }
+    }
+    for (objc_class *cls : objc::allocatedClasses.get()) {
+        if (classDepends((Class)cls)) { return true; }
+    }
+    return false;
+}
+#endif
+
 void _unload_image(header_info *hi)
 {
     size_t count, i;
@@ -9279,10 +9358,12 @@ objc_constructInstance(Class cls, void *bytes)
     }
 
     if (hasCxxCtor) {
-        return object_cxxConstructFromClass(obj, cls, OBJECT_CONSTRUCT_NONE);
-    } else {
-        return obj;
+        obj = object_cxxConstructFromClass(obj, cls, OBJECT_CONSTRUCT_NONE);
     }
+#if defined(__ANDROID__)
+    objc_android_track_object(obj, cls);
+#endif
+    return obj;
 }
 
 
@@ -9328,11 +9409,18 @@ _class_createInstance_realized(Class cls, size_t extraBytes,
     }
 
     if (fastpath(!hasCxxCtor)) {
+#if defined(__ANDROID__)
+        objc_android_track_object(obj, cls);
+#endif
         return obj;
     }
 
     construct_flags |= OBJECT_CONSTRUCT_FREE_ONFAILURE;
-    return object_cxxConstructFromClass(obj, cls, construct_flags);
+    obj = object_cxxConstructFromClass(obj, cls, construct_flags);
+#if defined(__ANDROID__)
+    objc_android_track_object(obj, cls);
+#endif
+    return obj;
 }
 
 id
@@ -9445,6 +9533,9 @@ static void *objc_destructInstance_nonnull_realized(id obj)
     if (cxx) object_cxxDestruct(obj);
     if (assoc) _object_remove_associations(obj, /*deallocating*/true);
     obj->clearDeallocating();
+#if defined(__ANDROID__)
+    objc_android_untrack_object(obj);
+#endif
     return obj;
 }
 
