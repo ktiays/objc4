@@ -115,8 +115,7 @@ Physical devices still require validation.
 
 Both Debug and Release also passed the native suite on the 4 KB emulator. A separate
 parent CMake project also compiled, linked, and ran an ARC client using the
-integration example above. GitHub Actions builds both configurations; device
-execution currently uses the local adb test script.
+integration example above. Device execution uses the local adb test script.
 
 The smoke suite checks:
 
