@@ -1367,7 +1367,17 @@ objc_object::rootRetainCount() const
   pool in the unoptimized case.
 **********************************************************************/
 
-# if __x86_64__
+# if defined(_WIN32)
+
+static ALWAYS_INLINE bool
+callerAcceptsOptimizedReturn(const void *)
+{
+    // Windows uses the ordinary retain/autorelease path, without inspecting
+    // Apple-specific instruction sequences in the caller.
+    return false;
+}
+
+# elif __x86_64__
 
 static ALWAYS_INLINE bool 
 callerAcceptsOptimizedReturn(const void * const ra0)
@@ -1489,7 +1499,7 @@ callerAcceptsOptimizedReturn(const void *ra)
 
 struct ReturnAutoreleaseInfo {
     constexpr static int objectShift = 2;
-#if __LP64__
+#if (__SIZEOF_POINTER__ == 8)
     constexpr static int objectBits = 64 - objectShift;
 #else
     constexpr static int objectBits = 32 - objectShift;
@@ -1585,7 +1595,7 @@ void moveTLSAutoreleaseToPool(ReturnAutoreleaseInfo info);
 // keeps autorelease elision consistent between the two.
 static ALWAYS_INLINE void *
 clientReturnAddress(void) {
-#if defined(__wasm__)
+#if defined(__wasm__) || defined(_WIN32)
     return nullptr;
 #elif DEBUG
     const struct mach_header *libobjcHeader = dyld_image_header_containing_address((void *)objc_retain);

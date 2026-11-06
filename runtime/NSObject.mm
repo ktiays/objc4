@@ -30,7 +30,7 @@
 #include <malloc/malloc.h>
 #include <stdint.h>
 #include <stdbool.h>
-#if !defined(__ANDROID__) && !defined(__wasm__)
+#if !OBJC_PORTABLE_RUNTIME
 #include <mach-o/dyld.h>
 #include <mach-o/nlist.h>
 #endif
@@ -40,10 +40,12 @@
 #include "NSObject-internal.h"
 #include "NSObject-private.h"
 
-#if !defined(__ANDROID__) && !defined(__wasm__)
+#if !OBJC_PORTABLE_RUNTIME
 #include <mach/mach.h>
 #endif
+#if !defined(_WIN32)
 #include <sys/mman.h>
+#endif
 
 #include <os/feature_private.h>
 
@@ -119,8 +121,8 @@ extern "C" void swift_release(id);
 
 ALWAYS_INLINE
 static void _initializeSwiftRefcounting() {
-#if defined(__wasm__)
-    _objc_fatal("Swift Objective-C interoperability is not available on WebAssembly");
+#if defined(__wasm__) || defined(_WIN32)
+    _objc_fatal("Swift Objective-C interoperability is not available on this platform");
 #elif defined(__ANDROID__)
     auto retain = reinterpret_cast<id (*)(id)>(dlsym(RTLD_DEFAULT, "swift_retain"));
     auto release = reinterpret_cast<void (*)(id)>(dlsym(RTLD_DEFAULT, "swift_release"));
@@ -166,7 +168,7 @@ _Atomic uint32_t numFaults = 0;
 #define SIDE_TABLE_WEAKLY_REFERENCED (1UL<<0)
 #define SIDE_TABLE_DEALLOCATING      (1UL<<1)  // MSB-ward of weak bit
 #define SIDE_TABLE_RC_ONE            (1UL<<2)  // MSB-ward of deallocating bit
-#define SIDE_TABLE_RC_PINNED         (1UL<<(WORD_BITS-1))
+#define SIDE_TABLE_RC_PINNED         (uintptr_t(1)<<(WORD_BITS-1))
 
 #define SIDE_TABLE_RC_SHIFT 2
 #define SIDE_TABLE_FLAG_MASK (SIDE_TABLE_RC_ONE-1)
@@ -342,6 +344,8 @@ static void *weakTableScanThread(void *) {
 #if defined(__EMSCRIPTEN_PTHREADS__)
     emscripten_set_thread_name(pthread_self(), "ObjC weak scan");
 #endif
+#elif defined(_WIN32)
+    SetThreadDescription(GetCurrentThread(), L"ObjC weak scan");
 #elif defined(__ANDROID__)
     pthread_setname_np(pthread_self(), "ObjC weak scan");
 #else
@@ -796,12 +800,21 @@ private:
 
     static void * operator new(size_t size) {
         void *result = 0;
+#if defined(_WIN32)
+        result = _aligned_malloc(SIZE, SIZE);
+        int r = result ? 0 : ENOMEM;
+#else
         int r = posix_memalign(&result, SIZE, SIZE);
+#endif
         ASSERT(r == 0);
         return result;
     }
     static void operator delete(void * p) {
+#if defined(_WIN32)
+        return _aligned_free(p);
+#else
         return free(p);
+#endif
     }
 
     inline void protect() {
@@ -1412,14 +1425,14 @@ public:
                 AutoreleasePoolEntry *entry = (AutoreleasePoolEntry *)p;
                 if (entry->getCount() > 0) {
                     id obj = (id)entry->getPointer();
-                    _objc_inform("[%p]  %#16lx  %s  autorelease count %lu",
-                                 p, (unsigned long)obj, object_getClassName(obj),
+                    _objc_inform("[%p]  %#16" PRIxPTR "  %s  autorelease count %lu",
+                                 p, (uintptr_t)obj, object_getClassName(obj),
                                  (unsigned long)entry->getCount() + 1);
                     goto done;
                 }
 #endif
-                _objc_inform("[%p]  %#16lx  %s",
-                             p, (unsigned long)*p, object_getClassName(*p));
+                _objc_inform("[%p]  %#16" PRIxPTR "  %s",
+                             p, (uintptr_t)*p, object_getClassName(*p));
              done:;
             }
         }

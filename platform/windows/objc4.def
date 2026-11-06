@@ -1,0 +1,7 @@
+EXPORTS
+    _NSConcreteStackBlock DATA
+    _NSConcreteGlobalBlock DATA
+    _NSConcreteMallocBlock DATA
+    _NSConcreteAutoBlock DATA
+    _NSConcreteFinalizingBlock DATA
+    _NSConcreteWeakBlockVariable DATA

@@ -67,7 +67,9 @@ static inline void
 foreach_data_segment(const headerType *header,
                      std::function<void(const segmentType *, intptr_t)> code)
 {
-#if defined(__wasm__)
+#if defined(_WIN32)
+    auto image = reinterpret_cast<const objc_windows_image *>(header);
+#elif defined(__wasm__)
     auto image = reinterpret_cast<const objc_wasm_image *>(header);
 #else
     auto image = reinterpret_cast<const objc_android_image *>(header);

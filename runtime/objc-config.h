@@ -26,7 +26,7 @@
 
 #include <TargetConditionals.h>
 
-#if defined(__ANDROID__) || defined(__wasm__)
+#if defined(__ANDROID__) || defined(__wasm__) || defined(_WIN32)
 #define OBJC_PORTABLE_RUNTIME 1
 #else
 #define OBJC_PORTABLE_RUNTIME 0
@@ -69,7 +69,7 @@
 
 // Define SUPPORT_TAGGED_POINTERS=1 to enable tagged pointer objects
 // Be sure to edit tagged pointer SPI in objc-internal.h as well.
-#if !__LP64__ || OBJC_PORTABLE_RUNTIME
+#if (__SIZEOF_POINTER__ != 8) || OBJC_PORTABLE_RUNTIME
 #   define SUPPORT_TAGGED_POINTERS 0
 #else
 #   define SUPPORT_TAGGED_POINTERS 1
@@ -88,7 +88,7 @@
 // field as an index into a class table.
 // Note, keep this in sync with any .s files which also define it.
 // Be sure to edit objc-abi.h as well.
-#if __ARM_ARCH_7K__ >= 2  ||  (__arm64__ && !__LP64__)
+#if __ARM_ARCH_7K__ >= 2  ||  (__arm64__ && (__SIZEOF_POINTER__ != 8))
 #   define SUPPORT_INDEXED_ISA 1
 #else
 #   define SUPPORT_INDEXED_ISA 0
@@ -96,7 +96,7 @@
 
 // Define SUPPORT_PACKED_ISA=1 on platforms that store the class in the isa 
 // field as a maskable pointer with other data around it.
-#if (OBJC_PORTABLE_RUNTIME || !__LP64__  ||  \
+#if (OBJC_PORTABLE_RUNTIME || (__SIZEOF_POINTER__ != 8)  ||  \
      (TARGET_OS_SIMULATOR && !TARGET_OS_MACCATALYST && !__arm64__))
 #   define SUPPORT_PACKED_ISA 0
 #else
@@ -155,7 +155,7 @@
 #endif
 
 // Define SUPPORT_AUTORELEASEPOOL_DEDDUP_PTRS to combine consecutive pointers to the same object in autorelease pools
-#if !__LP64__ || defined(__ANDROID__)
+#if (__SIZEOF_POINTER__ != 8) || defined(__ANDROID__) || defined(_WIN32)
 #   define SUPPORT_AUTORELEASEPOOL_DEDUP_PTRS 0
 #else
 #   define SUPPORT_AUTORELEASEPOOL_DEDUP_PTRS 1
@@ -183,7 +183,7 @@
 // elision based on comparing the return address of the call and claim. When 0,
 // we only support the older scheme that inspects the caller's code for a claim
 // call or sentinel NOP.
-#if __arm64__ && !defined(__ANDROID__)
+#if __arm64__ && !OBJC_PORTABLE_RUNTIME
 #   define HAS_RETURNADDR_AUTORELEASE_ELISION 1
 #else
 #   define HAS_RETURNADDR_AUTORELEASE_ELISION 0
@@ -225,15 +225,15 @@
 #define CACHE_MASK_STORAGE_LOW_4 3
 #define CACHE_MASK_STORAGE_HIGH_16_BIG_ADDRS 4
 
-#if defined(__ANDROID__)
+#if defined(__ANDROID__) || defined(_WIN32)
 #define CACHE_MASK_STORAGE CACHE_MASK_STORAGE_OUTLINED
-#elif defined(__arm64__) && __LP64__
+#elif defined(__arm64__) && (__SIZEOF_POINTER__ == 8)
 #if   TARGET_OS_OSX || TARGET_OS_SIMULATOR
 #define CACHE_MASK_STORAGE CACHE_MASK_STORAGE_HIGH_16_BIG_ADDRS
 #else
 #define CACHE_MASK_STORAGE CACHE_MASK_STORAGE_HIGH_16
 #endif
-#elif defined(__arm64__) && !__LP64__
+#elif defined(__arm64__) && (__SIZEOF_POINTER__ != 8)
 #define CACHE_MASK_STORAGE CACHE_MASK_STORAGE_LOW_4
 #else
 #define CACHE_MASK_STORAGE CACHE_MASK_STORAGE_OUTLINED
@@ -310,7 +310,7 @@
 #define CONFIG_USE_PREOPT_CACHES_BUILD_ONLY 1
 #elif TARGET_OS_SIMULATOR
 #define CONFIG_USE_PREOPT_CACHES 0
-#elif defined(__arm64__) && __LP64__
+#elif defined(__arm64__) && (__SIZEOF_POINTER__ == 8)
 #define CONFIG_USE_PREOPT_CACHES 1
 #else
 #define CONFIG_USE_PREOPT_CACHES 0
@@ -342,7 +342,7 @@
 #define HAVE_CLOCK_GETTIME_NSEC_NP 0
 #endif
 
-#if   TARGET_OS_MAC || OBJC_PORTABLE_RUNTIME
+#if   TARGET_OS_MAC || (OBJC_PORTABLE_RUNTIME && !defined(_WIN32))
 #define HAVE_ASPRINTF   1
 #else
 #define HAVE_ASPRINTF   0

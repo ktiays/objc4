@@ -40,7 +40,13 @@
 
 #include <TargetConditionals.h>
 
-#if defined(__wasm__)
+#if defined(_WIN32)
+#  define PAGE_SIZE       4096
+#  define PAGE_MIN_SIZE   4096
+#  define PAGE_MAX_SIZE   4096
+#  define PAGE_MAX_SHIFT  12
+#  define OBJC_VM_MAX_ADDRESS  0x00007ffffffffff8ULL
+#elif defined(__wasm__)
 // Allocation pages used by the runtime, independently of Wasm memory pages.
 #  undef PAGE_SIZE
 #  define PAGE_SIZE       4096

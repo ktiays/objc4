@@ -119,7 +119,7 @@
 //
 // FAST_* and FAST_CACHE_* are stored on the class, reducing pointer indirection.
 
-#if __LP64__
+#if (__SIZEOF_POINTER__ == 8)
 
 // class is a Swift class from the pre-stable Swift ABI
 #define FAST_IS_SWIFT_LEGACY    (1UL<<0)
@@ -129,7 +129,10 @@
 //   _tryRetain/_isDeallocating/retainWeakReference/allowsWeakReference
 #define FAST_HAS_DEFAULT_RR     (1UL<<2)
 // data pointer
-#if defined(__ANDROID__)
+#if defined(_WIN32)
+#define FAST_DATA_MASK          (~uintptr_t(7))
+#define DEBUG_DATA_MASK         FAST_DATA_MASK
+#elif defined(__ANDROID__)
 // Preserve Bionic's tagged heap pointers. The high bit cannot double as a
 // realized-class flag on this platform; use the existing flags-based fallback.
 #define FAST_DATA_MASK          (~7UL)
@@ -143,14 +146,14 @@
 #endif
 
 static_assert((OBJC_VM_MAX_ADDRESS & FAST_DATA_MASK)
-              == (OBJC_VM_MAX_ADDRESS & ~7UL),
+              == (OBJC_VM_MAX_ADDRESS & ~uintptr_t(7)),
               "FAST_DATA_MASK must not mask off pointer bits");
 
 // just the flags
 #define FAST_FLAGS_MASK         0x0000000000000007UL
 
 // this bit tells us *quickly* that it's a pointer to an rw, not an ro
-#if defined(__ANDROID__)
+#if defined(__ANDROID__) || defined(_WIN32)
 #define FAST_IS_RW_POINTER      0
 #else
 #define FAST_IS_RW_POINTER      0x8000000000000000UL
@@ -193,7 +196,7 @@ static_assert(FAST_IS_SWIFT_LEGACY == 1, "resistance is futile");
 static_assert(FAST_IS_SWIFT_STABLE == 2, "resistance is futile");
 
 
-#if __LP64__
+#if (__SIZEOF_POINTER__ == 8)
 typedef uint32_t mask_t;  // x86_64 & arm64 asm are less efficient with 16-bits
 #else
 typedef uint16_t mask_t;
@@ -355,17 +358,17 @@ private:
         // unrealized classes with the assumption that they will start out
         // as 0.
         struct {
-#if CACHE_MASK_STORAGE == CACHE_MASK_STORAGE_OUTLINED && !__LP64__
+#if CACHE_MASK_STORAGE == CACHE_MASK_STORAGE_OUTLINED && (__SIZEOF_POINTER__ != 8)
             // Outlined cache mask storage, 32-bit, we have mask and occupied.
             explicit_atomic<mask_t>    _mask;
             uint16_t                   _occupied;
-#elif CACHE_MASK_STORAGE == CACHE_MASK_STORAGE_OUTLINED && __LP64__
+#elif CACHE_MASK_STORAGE == CACHE_MASK_STORAGE_OUTLINED && (__SIZEOF_POINTER__ == 8)
             // Outlined cache mask storage, 64-bit, we have mask, occupied, flags.
             explicit_atomic<mask_t>    _mask;
             uint16_t                   _occupied;
             uint16_t                   _flags;
 #   define CACHE_T_HAS_FLAGS 1
-#elif __LP64__
+#elif (__SIZEOF_POINTER__ == 8)
             // Inline cache mask storage, 64-bit, we have occupied, flags, and
             // empty space to line up flags with originalPreoptCache.
             //
@@ -394,7 +397,7 @@ private:
 #if CACHE_MASK_STORAGE == CACHE_MASK_STORAGE_OUTLINED
     // _bucketsAndMaybeMask is a buckets_t pointer
 
-    static constexpr uintptr_t bucketsMask = ~0ul;
+    static constexpr uintptr_t bucketsMask = ~uintptr_t(0);
     static_assert(!CONFIG_USE_PREOPT_CACHES, "preoptimized caches not supported");
 #elif CACHE_MASK_STORAGE == CACHE_MASK_STORAGE_HIGH_16_BIG_ADDRS
     static constexpr uintptr_t maskShift = 48;
@@ -557,7 +560,7 @@ public:
 
 // The code in fastInstanceSize/setFastInstanceSize is not quite right for
 // 32-bit, so we currently only enable this for 64-bit.
-#   if __LP64__
+#   if (__SIZEOF_POINTER__ == 8)
 #       define FAST_CACHE_ALLOC_MASK         0x0ff8
 #       define FAST_CACHE_ALLOC_MASK16       0x0ff0
 #       define FAST_CACHE_ALLOC_DELTA16      0x0008
@@ -1610,7 +1613,7 @@ struct class_ro_t {
     uint32_t flags;
     uint32_t instanceStart;
     uint32_t instanceSize;
-#ifdef __LP64__
+#if __SIZEOF_POINTER__ == 8
     uint32_t reserved;
 #endif
 

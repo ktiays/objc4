@@ -55,7 +55,7 @@ reclamation.
 // don't see lots of interior pointers from the weak table into objects.
 typedef DisguisedPtr<objc_object *> weak_referrer_t;
 
-#if __LP64__
+#if (__SIZEOF_POINTER__ == 8)
 #define PTR_MINUS_2 62
 #else
 #define PTR_MINUS_2 30

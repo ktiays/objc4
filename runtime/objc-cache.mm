@@ -84,6 +84,8 @@
 #include "objc-cache-android.h"
 #elif defined(__wasm__)
 #include "objc-cache-wasm.h"
+#elif defined(_WIN32)
+#include "objc-cache-windows.h"
 #endif
 
 #if OBJC_USE_ROSETTA
@@ -102,7 +104,7 @@ static inline mask_t cache_fill_ratio(mask_t capacity) {
     return capacity * 3 / 4;
 }
 
-#elif __arm64__ && !__LP64__
+#elif __arm64__ && (__SIZEOF_POINTER__ != 8)
 
 // objc_msgSend has lots of registers available.
 // Cache scan decrements. No end marker needed.
@@ -113,7 +115,7 @@ static inline mask_t cache_fill_ratio(mask_t capacity) {
     return capacity * 3 / 4;
 }
 
-#elif __arm64__ && __LP64__
+#elif __arm64__ && (__SIZEOF_POINTER__ == 8)
 
 // objc_msgSend has lots of registers available.
 // Cache scan decrements. No end marker needed.
@@ -141,7 +143,7 @@ static inline mask_t cache_fill_ratio(mask_t capacity) {
 
 /* Initial cache bucket count. INIT_CACHE_SIZE must be a power of two. */
 enum {
-#if CACHE_END_MARKER || (__arm64__ && !__LP64__)
+#if CACHE_END_MARKER || (__arm64__ && (__SIZEOF_POINTER__ != 8))
     // When we have a cache end marker it fills a bucket slot, so having a
     // initial cache size of 2 buckets would not be efficient when one of the
     // slots is always filled with the end marker. So start with a cache size
@@ -221,7 +223,7 @@ static void recordDeadCache(mask_t capacity)
 
 // "cache" is cache->buckets; "vtable" is cache->mask/occupied
 // hack to avoid conflicts with compiler's internal declaration
-#if defined(__wasm__)
+#if defined(__wasm__) || defined(_WIN32)
 struct alignas(16) objc_cache { unsigned char bytes[EMPTY_BYTES]; };
 extern "C" {
 __attribute__((used)) struct objc_cache _objc_empty_cache = {};
@@ -284,7 +286,7 @@ static inline mask_t cache_next(mask_t i, mask_t mask) {
 #if __arm64__
 
 // Pointer-size register prefix for inline asm
-# if __LP64__
+# if (__SIZEOF_POINTER__ == 8)
 #   define p "x"  // true arm64
 # else
 #   define p "w"  // arm64_32
@@ -350,7 +352,11 @@ void bucket_t::set(bucket_t *base, SEL newSel, IMP newImp, Class cls)
                             ? encodeImp(base, newImp, newSel, cls)
                             : (uintptr_t)newImp);
 
-#if defined(__ANDROID__)
+#if defined(_WIN32)
+    objc_windows_cache_writer writer(cls);
+    _imp.store(encodedImp, memory_order_relaxed);
+    _sel.store(newSel, memory_order_relaxed);
+#elif defined(__ANDROID__)
     objc_android_cache_writer writer(cls);
     _imp.store(encodedImp, memory_order_relaxed);
     _sel.store(newSel, memory_order_relaxed);
@@ -366,7 +372,9 @@ void bucket_t::set(bucket_t *base, SEL newSel, IMP newImp, Class cls)
 template<Atomicity atomicity, IMPEncoding impEncoding>
 void bucket_t::set(bucket_t *base, SEL newSel, IMP newImp, Class cls)
 {
-#if defined(__wasm__)
+#if defined(_WIN32)
+    objc_windows_cache_writer writer(cls);
+#elif defined(__wasm__)
     objc_wasm_cache_writer writer(cls);
 #endif
     ASSERT(_sel.load(memory_order_relaxed) == 0 ||
@@ -389,7 +397,7 @@ void bucket_t::set(bucket_t *base, SEL newSel, IMP newImp, Class cls)
 #ifdef __arm__
             mega_barrier();
             _sel.store(newSel, memory_order_relaxed);
-#elif __x86_64__ || __i386__ || defined(__wasm__)
+#elif __x86_64__ || __i386__ || defined(__wasm__) || defined(_WIN32)
             _sel.store(newSel, memory_order_release);
 #else
 #error Do not know how to do bucket_t::set on this architecture.
@@ -622,6 +630,8 @@ void cache_t::setBucketsAndMask(struct bucket_t *newBuckets, mask_t newMask)
     objc_android_cache_writer writer(cls());
 #elif defined(__wasm__)
     objc_wasm_cache_writer writer(cls());
+#elif defined(_WIN32)
+    objc_windows_cache_writer writer(cls());
 #endif
     // objc_msgSend uses mask and buckets with no locks.
     // It is safe for objc_msgSend to see new buckets but old mask.
@@ -641,7 +651,7 @@ void cache_t::setBucketsAndMask(struct bucket_t *newBuckets, mask_t newMask)
 
     _mask.store(newMask, memory_order_relaxed);
     _occupied = 0;
-#elif __x86_64__ || i386 || defined(__ANDROID__) || defined(__wasm__)
+#elif __x86_64__ || i386 || defined(__ANDROID__) || defined(__wasm__) || defined(_WIN32)
     // ensure other threads see buckets contents before buckets pointer
     _bucketsAndMaybeMask.store((uintptr_t)newBuckets, memory_order_release);
 
@@ -1066,7 +1076,7 @@ void cache_t::destroy()
         if (DebugScribbleCaches) { memset(oldBuckets, 0xa5, bytesForCapacity(oldCapacity)); }
         objc_android_cache_record_reclaim(bytesForCapacity(oldCapacity));
         free(oldBuckets);
-#elif defined(__wasm__)
+#elif defined(__wasm__) || defined(_WIN32)
         auto oldBuckets = buckets();
         auto oldCapacity = capacity();
         setBucketsAndMask(emptyBuckets(), 0);

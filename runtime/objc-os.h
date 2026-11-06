@@ -37,7 +37,7 @@
 #include "objc-ptrauth.h"
 #include "objc-vm.h"
 
-#ifdef __LP64__
+#if __SIZEOF_POINTER__ == 8
 #   define WORD_SHIFT 3UL
 #   define WORD_MASK 7UL
 #   define WORD_BITS 64
@@ -131,14 +131,18 @@ static inline uintptr_t mask16ShiftBits(uint16_t mask)
 #   include <limits.h>
 
 #   include <fcntl.h>
+#if !defined(_WIN32)
 #   include <syslog.h>
+#endif
 #   include <unistd.h>
 #   include <pthread.h>
 #if !OBJC_PORTABLE_RUNTIME
 #   include <crt_externs.h>
 #endif
 #   undef check
+#if !defined(_WIN32)
 #   include <sys/mman.h>
+#endif
 #   include <sys/time.h>
 #   include <sys/stat.h>
 #   include <sys/param.h>
@@ -184,13 +188,21 @@ void vsyslog(int, const char *, va_list) UNAVAILABLE_ATTRIBUTE;
 static ALWAYS_INLINE uintptr_t 
 addc(uintptr_t lhs, uintptr_t rhs, uintptr_t carryin, uintptr_t *carryout)
 {
+#if defined(_WIN64)
+    return __builtin_addcll(lhs, rhs, carryin, carryout);
+#else
     return __builtin_addcl(lhs, rhs, carryin, carryout);
+#endif
 }
 
 static ALWAYS_INLINE uintptr_t 
 subc(uintptr_t lhs, uintptr_t rhs, uintptr_t carryin, uintptr_t *carryout)
 {
+#if defined(_WIN64)
+    return __builtin_subcll(lhs, rhs, carryin, carryout);
+#else
     return __builtin_subcl(lhs, rhs, carryin, carryout);
+#endif
 }
 
 #if __arm64__ && !__arm64e__
@@ -382,7 +394,7 @@ extern void _objc_fatal_with_reason(uint64_t reason, uint64_t flags,
 
 // OS headers
 #include <mach-o/loader.h>
-#ifndef __LP64__
+#if __SIZEOF_POINTER__ != 8
 #   define SEGMENT_CMD LC_SEGMENT
 #else
 #   define SEGMENT_CMD LC_SEGMENT_64
@@ -419,7 +431,7 @@ using mutex_locker_t = mutex_t::locker;
 using conditional_mutex_locker_t = mutex_t::conditional_locker;
 
 // Mach-O things
-#ifndef __LP64__
+#if __SIZEOF_POINTER__ != 8
 typedef struct mach_header headerType;
 typedef struct segment_command segmentType;
 typedef struct section sectionType;
@@ -458,6 +470,8 @@ extern int secure_open(const char *filename, int flags, uid_t euid);
 #include "objc-android-os.h"
 #elif defined(__wasm__)
 #include "objc-wasm-os.h"
+#elif defined(_WIN32)
+#include "objc-windows-os.h"
 #else
 
 

@@ -1,0 +1,22 @@
+set(CMAKE_SYSTEM_NAME Windows)
+set(OBJC_WINDOWS_ARCH "aarch64" CACHE STRING "Windows target: aarch64 or x86_64")
+set_property(CACHE OBJC_WINDOWS_ARCH PROPERTY STRINGS aarch64 x86_64)
+if(NOT OBJC_WINDOWS_ARCH MATCHES "^(aarch64|x86_64)$")
+    message(FATAL_ERROR "OBJC_WINDOWS_ARCH must be aarch64 or x86_64")
+endif()
+set(CMAKE_SYSTEM_PROCESSOR "${OBJC_WINDOWS_ARCH}")
+set(LLVM_MINGW_ROOT "$ENV{LLVM_MINGW_ROOT}" CACHE PATH "LLVM-MinGW installation")
+list(APPEND CMAKE_TRY_COMPILE_PLATFORM_VARIABLES LLVM_MINGW_ROOT OBJC_WINDOWS_ARCH)
+foreach(language IN ITEMS C CXX OBJC OBJCXX ASM)
+    if(language MATCHES "^(CXX|OBJCXX)$")
+        set(driver clang++)
+    else()
+        set(driver clang)
+    endif()
+    find_program(OBJC_WINDOWS_${language}_COMPILER
+        NAMES "${OBJC_WINDOWS_ARCH}-w64-mingw32-${driver}"
+        HINTS "${LLVM_MINGW_ROOT}/bin" REQUIRED)
+    set(CMAKE_${language}_COMPILER "${OBJC_WINDOWS_${language}_COMPILER}")
+endforeach()
+find_program(CMAKE_RC_COMPILER NAMES "${OBJC_WINDOWS_ARCH}-w64-mingw32-windres"
+    HINTS "${LLVM_MINGW_ROOT}/bin" REQUIRED)

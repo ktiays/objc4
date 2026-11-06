@@ -29,6 +29,8 @@
 #ifndef _OBJC_LOCKDEBUG_H
 #define _OBJC_LOCKDEBUG_H
 
+#include <variant>
+
 // Define LOCKDEBUG if it isn't already set
 #ifndef LOCKDEBUG
 #   if DEBUG

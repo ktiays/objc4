@@ -135,7 +135,7 @@
 
 #if SUPPORT_INDEXED_ISA
 
-# if  __ARM_ARCH_7K__ >= 2  ||  (__arm64__ && !__LP64__)
+# if  __ARM_ARCH_7K__ >= 2  ||  (__arm64__ && (__SIZEOF_POINTER__ != 8))
     // armv7k or arm64_32
 
 #   define ISA_INDEX_IS_NPI_BIT  0

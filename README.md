@@ -1,6 +1,6 @@
 # objc4
 
-Android arm64 and Emscripten wasm32 ports of Apple's public Objective-C runtime sources.
+Android arm64, Windows ARM64/x64, and Emscripten wasm32 ports of Apple's public Objective-C runtime sources.
 The upstream baseline is **objc4-951.1**, commit
 `fb265098298302243cd7eeaa1f63f0ba7786dd9a` from
 [apple-oss-distributions/objc4](https://github.com/apple-oss-distributions/objc4).
@@ -36,6 +36,21 @@ before embedding it in an application.
 Run `./scripts/benchmark-android.sh` to compare Release cache-hit dispatch
 against a build with the cache fast path disabled on the same device.
 
+## Windows quick start
+
+Install CMake, Ninja, and an LLVM-MinGW UCRT toolchain, then run in PowerShell:
+
+```powershell
+$env:LLVM_MINGW_ROOT = 'C:\tools\llvm-mingw-20261104-ucrt-aarch64'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-windows.ps1 -Configuration Debug -Architecture aarch64
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-windows.ps1 -Configuration Release -Architecture x86_64
+```
+
+The port builds `objc4.dll` with Apple's Objective-C metadata ABI, Windows
+message dispatch and SEH exception handling. Both target architectures use
+LLVM-MinGW's libc++ and winpthreads. Registered Objective-C DLLs remain pinned.
+See [Windows integration, validation and limitations](docs/windows.md).
+
 ## WebAssembly quick start
 
 Install CMake, Ninja, Python 3.12 or newer, and Node.js, then:
@@ -55,7 +70,7 @@ The output is `libobjc4.a` with Apple ABI headers. See
 ## Keeping the upstream current
 
 Apple code remains in `runtime/`; platform implementations live in
-`platform/android/` and `platform/wasm/`. Shared-source changes are guarded where their semantics
+`platform/android/`, `platform/windows/`, and `platform/wasm/`. Shared-source changes are guarded where their semantics
 differ. Update from Apple's public source releases through the `upstream` remote,
 and run the Android validation after resolving changes:
 

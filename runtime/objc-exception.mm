@@ -153,7 +153,7 @@ bool _objc_exception_do_catch(struct objc_typeinfo *catch_tinfo,
 #   define VTABLE_ENTRY_AUTH(x) ""
 #endif
 
-#if __LP64__
+#if (__SIZEOF_POINTER__ == 8)
 #   define PTR ".quad "
 #   define TWOPTRSIZE "16"
 #else
@@ -674,7 +674,7 @@ static uintptr_t read_address(uintptr_t *pp,
     case DW_EH_PE_udata4:
         READ(uint32_t);
         break;
-#if __LP64__
+#if (__SIZEOF_POINTER__ == 8)
     case DW_EH_PE_udata8:
         READ(uint64_t);
         break;
@@ -688,7 +688,7 @@ static uintptr_t read_address(uintptr_t *pp,
     case DW_EH_PE_sdata4:
         READ(int32_t);
         break;
-#if __LP64__
+#if (__SIZEOF_POINTER__ == 8)
     case DW_EH_PE_sdata8:
         READ(int64_t);
         break;

@@ -408,7 +408,7 @@ objc_retainBlock(id _Nullable)
 #if TARGET_OS_SIMULATOR && !TARGET_OS_MACCATALYST && !__arm64__
     // No simulators use nonpointer isa yet.
     
-#elif __LP64__
+#elif (__SIZEOF_POINTER__ == 8)
 #   define OBJC_HAVE_NONPOINTER_ISA 1
 #   define OBJC_HAVE_PACKED_NONPOINTER_ISA 1
 
@@ -422,7 +422,7 @@ OBJC_EXPORT const struct { char c; } objc_absolute_packed_isa_class_mask
     OBJC_AVAILABLE(10.12, 10.0, 10.0, 3.0, 2.0);
 #   endif
 
-#elif (__ARM_ARCH_7K__ >= 2  ||  (__arm64__ && !__LP64__))
+#elif (__ARM_ARCH_7K__ >= 2  ||  (__arm64__ && (__SIZEOF_POINTER__ != 8)))
 #   define OBJC_HAVE_NONPOINTER_ISA 1
 #   define OBJC_HAVE_INDEXED_NONPOINTER_ISA 1
 

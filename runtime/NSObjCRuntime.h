@@ -9,7 +9,10 @@
 #include <limits.h>
 #include <objc/objc.h>
 
-#if __LP64__ || NS_BUILD_32_LIKE_64
+#if defined(_WIN64)
+typedef intptr_t NSInteger;
+typedef uintptr_t NSUInteger;
+#elif (__SIZEOF_POINTER__ == 8) || NS_BUILD_32_LIKE_64
 typedef long NSInteger;
 typedef unsigned long NSUInteger;
 #else
@@ -17,9 +20,15 @@ typedef int NSInteger;
 typedef unsigned int NSUInteger;
 #endif
 
+#if defined(_WIN64)
+#define NSIntegerMax    INTPTR_MAX
+#define NSIntegerMin    INTPTR_MIN
+#define NSUIntegerMax   UINTPTR_MAX
+#else
 #define NSIntegerMax    LONG_MAX
 #define NSIntegerMin    LONG_MIN
 #define NSUIntegerMax   ULONG_MAX
+#endif
 
 #define NSINTEGER_DEFINED 1
 

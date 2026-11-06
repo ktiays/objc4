@@ -6,6 +6,11 @@ if(EMSCRIPTEN)
     return()
 endif()
 
+if(WIN32)
+    include(platform/windows/objc4-windows.cmake)
+    return()
+endif()
+
 enable_language(ASM)
 
 if(NOT ANDROID OR NOT CMAKE_ANDROID_ARCH_ABI STREQUAL "arm64-v8a")

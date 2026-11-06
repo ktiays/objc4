@@ -32,7 +32,7 @@
 
 #include <stdlib.h>
 #include <string.h>
-#if !defined(__ANDROID__) && !defined(__wasm__)
+#if !OBJC_PORTABLE_RUNTIME
 #include <mach-o/dyld.h>
 #endif
 

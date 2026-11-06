@@ -165,7 +165,7 @@ BOOL NXCompareMapTables(NXMapTable *table1, NXMapTable *table2) {
 
 unsigned NXCountMapTable(NXMapTable *table) { return table->count; }
 
-#if __x86_64__
+#if __x86_64__ && !OBJC_PORTABLE_RUNTIME
 extern "C" void __NXMAPTABLE_CORRUPTED__
 (const void *table, const void *buckets, uint64_t count,
  uint64_t nbBucketsMinusOne, uint64_t badkeys, uint64_t index,
@@ -212,7 +212,7 @@ asm("\n .text"
 static void validateKey(NXMapTable *table, MapPair *pair,
                         unsigned index, unsigned index2)
 {
-#if __x86_64__
+#if __x86_64__ && !OBJC_PORTABLE_RUNTIME
 #   define BADKEY ((void * _Nonnull)(0xfffffffffffffffeULL))
     if (pair->key != BADKEY  ||
         table->prototype->isEqual != _mapStrIsEqual)
@@ -484,7 +484,7 @@ void *NXMapKeyFreeingRemove(NXMapTable *table, const void *key)
 /****		Conveniences		*************************************/
 
 static unsigned _mapPtrHash(NXMapTable *table, const void *key) {
-#ifdef __LP64__
+#if __SIZEOF_POINTER__ == 8
     return (unsigned)(((uintptr_t)key) >> 3);
 #else
     return ((uintptr_t)key) >> 2;

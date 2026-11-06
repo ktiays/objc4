@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <utility>
+#include <type_traits>
 
 #ifndef __has_feature
 #define LLVM_DEFINED_HAS_FEATURE

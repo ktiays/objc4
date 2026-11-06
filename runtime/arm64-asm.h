@@ -30,7 +30,7 @@
 
 #include "objc-config.h"
 
-#if __LP64__
+#if (__SIZEOF_POINTER__ == 8)
 // true arm64
 
 #define SUPPORT_TAGGED_POINTERS 1

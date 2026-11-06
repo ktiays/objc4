@@ -66,7 +66,7 @@ const char *sel_getName(SEL sel)
 
 unsigned long sel_hash(SEL sel)
 {
-    unsigned long selAddr = (unsigned long)sel;
+    uintptr_t selAddr = (uintptr_t)sel;
 #if SEL_HASH_SHIFT_XOR
     selAddr ^= (selAddr >> 7);
 #endif

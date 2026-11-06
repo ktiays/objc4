@@ -9845,7 +9845,7 @@ _objc_getClassForTag(objc_tag_index_t tag)
 uint32_t
 objc_uniformRandom(uint32_t n)
 {
-#if defined(__wasm__)
+#if defined(__wasm__) || defined(_WIN32)
     if (n < 2) return 0;
     uint32_t value;
     uint32_t threshold = -n % n;

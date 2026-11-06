@@ -286,7 +286,11 @@ static SyncData* id2data(id object, SyncKind kind, enum usage why)
     // XXX allocating memory with a global lock held is bad practice,
     // might be worth releasing the lock, allocating, and searching again.
     // But since we never free these guys we won't be stuck in allocation very often.
+#if defined(_WIN32)
+    result = static_cast<SyncData *>(_aligned_malloc(sizeof(SyncData), alignof(SyncData)));
+#else
     posix_memalign((void **)&result, alignof(SyncData), sizeof(SyncData));
+#endif
     result->object = (objc_object *)object;
     result->kind = kind;
     result->threadCount = 1;

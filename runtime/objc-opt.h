@@ -50,7 +50,7 @@ typedef struct header_info_rw {
     }
 
 private:
-#ifdef __LP64__
+#if __SIZEOF_POINTER__ == 8
     uintptr_t isLoaded                : 1;
     [[maybe_unused]] uintptr_t unused : 1;
     uintptr_t next                    : 62;

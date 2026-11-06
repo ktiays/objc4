@@ -43,7 +43,7 @@ namespace objc {
 #define MALLOC_ALIGNMENT 16
 
 class AtomicQueue {
-#if __LP64__
+#if (__SIZEOF_POINTER__ == 8)
     using pair_t = __int128_t;
 #else
     using pair_t = uint64_t;
@@ -58,7 +58,7 @@ class AtomicQueue {
     union {
         struct {
             Entry        *head;
-            unsigned long gen;
+            uintptr_t gen;
         };
         pair_t pair = 0;
     };

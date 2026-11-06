@@ -368,7 +368,7 @@ private:
             // <rdar://problem/48304934> Force the compiler to use ldp
             // we really don't want 2 loads and 2 jumps.
             __asm__(
-# if __LP64__
+# if (__SIZEOF_POINTER__ == 8)
                     "ldp %x[one], %x[two], [%x[src]]"
 # else
                     "ldp %w[one], %w[two], [%x[src]]"
@@ -1276,7 +1276,7 @@ struct ReversedFixedSizeArray {
 
 // Based on principles from http://locklessinc.com/articles/fast_hash/
 // and evaluation ideas from http://floodyberry.com/noncryptohashzoo/
-#if __LP64__
+#if (__SIZEOF_POINTER__ == 8)
 static inline uint32_t ptr_hash(uint64_t key)
 {
     key ^= key >> 4;
@@ -1296,7 +1296,7 @@ static inline uint32_t ptr_hash(uint32_t key)
 
 /*
   Higher-quality hash function. This is measurably slower in some workloads.
-#if __LP64__
+#if (__SIZEOF_POINTER__ == 8)
  uint32_t ptr_hash(uint64_t key)
 {
     key -= __builtin_bswap64(key);
