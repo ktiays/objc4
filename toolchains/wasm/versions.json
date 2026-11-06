@@ -1,0 +1,19 @@
+{
+  "emscripten_version": "6.0.13",
+  "emscripten_releases_commit": "eb132757325583b787fe9414b09afea9442b72ad",
+  "emscripten_commit": "e13ee988ce3d87a738dd8f3661d02223308c412a",
+  "llvm": {
+    "commit": "5f47feeedda059f88c30ca6f11109faa5ce5428c",
+    "url": "https://codeload.github.com/llvm/llvm-project/tar.gz/5f47feeedda059f88c30ca6f11109faa5ce5428c",
+    "archive": "llvm-project-5f47feeedda059f88c30ca6f11109faa5ce5428c.tar.gz",
+    "directory": "llvm-project-5f47feeedda059f88c30ca6f11109faa5ce5428c",
+    "sha256": "744178fda5dcae4154db63c4f90e81bf5613504e340b4f8dc81ee64e40c12d7a"
+  },
+  "sdk": {
+    "Darwin-arm64": {
+      "url": "https://storage.googleapis.com/webassembly/emscripten-releases-builds/mac/eb132757325583b787fe9414b09afea9442b72ad/wasm-binaries-arm64.tar.xz",
+      "archive": "emscripten-6.0.13-macos-arm64.tar.xz",
+      "sha256": "3d8ced05935fbef5b3edda4252dce260004860bf8d579617f13d417338aa4cac"
+    }
+  }
+}

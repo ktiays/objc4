@@ -108,7 +108,7 @@ static inline uintptr_t mask16ShiftBits(uint16_t mask)
 }
 }
 
-#if TARGET_OS_MAC || defined(__ANDROID__)
+#if TARGET_OS_MAC || OBJC_PORTABLE_RUNTIME
 
 #   define OS_UNFAIR_LOCK_INLINE 1
 
@@ -134,7 +134,7 @@ static inline uintptr_t mask16ShiftBits(uint16_t mask)
 #   include <syslog.h>
 #   include <unistd.h>
 #   include <pthread.h>
-#if !defined(__ANDROID__)
+#if !OBJC_PORTABLE_RUNTIME
 #   include <crt_externs.h>
 #endif
 #   undef check
@@ -142,7 +142,7 @@ static inline uintptr_t mask16ShiftBits(uint16_t mask)
 #   include <sys/time.h>
 #   include <sys/stat.h>
 #   include <sys/param.h>
-#if !defined(__ANDROID__)
+#if !OBJC_PORTABLE_RUNTIME
 #   include <sys/reason.h>
 #   include <mach/mach.h>
 #   include <mach/mach_time.h>
@@ -304,9 +304,9 @@ T AtomicDecrement(volatile T *value)
         std::memory_order_seq_cst);
 }
 
-#if !TARGET_OS_IPHONE && !defined(__ANDROID__)
+#if !TARGET_OS_IPHONE && !OBJC_PORTABLE_RUNTIME
 #       include <CrashReporterClient.h>
-#elif !defined(__ANDROID__)
+#elif !OBJC_PORTABLE_RUNTIME
     // CrashReporterClient not yet available on iOS
     __BEGIN_DECLS
     extern const char *CRSetCrashLogMessage(const char *msg);
@@ -456,6 +456,8 @@ extern int secure_open(const char *filename, int flags, uid_t euid);
 
 #elif defined(__ANDROID__)
 #include "objc-android-os.h"
+#elif defined(__wasm__)
+#include "objc-wasm-os.h"
 #else
 
 
@@ -512,7 +514,7 @@ ustrdupMaybeNil(const uint8_t *str)
 // This version order matches OBJC_AVAILABLE.
 //
 // NOTE: prefer dyld_program_sdk_at_least when possible
-#if defined(__ANDROID__)
+#if OBJC_PORTABLE_RUNTIME
 // Android modules have no legacy Apple SDK compatibility behavior.
 #define sdkIsAtLeast(x, i, t, w, b) true
 #else

@@ -1464,6 +1464,16 @@ callerAcceptsOptimizedReturn(const void *ra)
 }
 
 // __i386__
+# elif defined(__wasm__)
+
+static ALWAYS_INLINE bool
+callerAcceptsOptimizedReturn(const void *)
+{
+    // Wasm code addresses are outside linear memory. Use the ordinary
+    // retain/autorelease path instead of inspecting caller instructions.
+    return false;
+}
+
 # else
 
 #warning unknown architecture
@@ -1575,7 +1585,9 @@ void moveTLSAutoreleaseToPool(ReturnAutoreleaseInfo info);
 // keeps autorelease elision consistent between the two.
 static ALWAYS_INLINE void *
 clientReturnAddress(void) {
-#if DEBUG
+#if defined(__wasm__)
+    return nullptr;
+#elif DEBUG
     const struct mach_header *libobjcHeader = dyld_image_header_containing_address((void *)objc_retain);
 
     // Ignore warnings about non-zero arguments to __builtin_return_address. We

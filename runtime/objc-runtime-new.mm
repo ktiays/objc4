@@ -41,7 +41,7 @@
 #include <Block.h>
 #include <objc/message.h>
 
-#if !defined(__ANDROID__)
+#if !OBJC_PORTABLE_RUNTIME
 #include <mach/shared_region.h>
 
 extern "C" {
@@ -7778,6 +7778,10 @@ IMP lookUpImpOrForward(id inst, SEL sel, Class cls, int behavior)
         behavior |= LOOKUP_NOCACHE;
 
         goto done;
+#elif defined(__wasm__)
+        imp = nullptr;
+        behavior |= LOOKUP_NOCACHE;
+        goto done;
 #else
 #error "Don't know how to handle messages to disabled classes on this target."
 #endif
@@ -9841,7 +9845,19 @@ _objc_getClassForTag(objc_tag_index_t tag)
 uint32_t
 objc_uniformRandom(uint32_t n)
 {
+#if defined(__wasm__)
+    if (n < 2) return 0;
+    uint32_t value;
+    uint32_t threshold = -n % n;
+    do {
+        if (getentropy(&value, sizeof(value)) != 0) {
+            _objc_fatal("Could not obtain host random bytes");
+        }
+    } while (value < threshold);
+    return value % n;
+#else
     return arc4random_uniform(n);
+#endif
 }
 
 /***********************************************************************
@@ -9851,7 +9867,7 @@ objc_uniformRandom(uint32_t n)
 void *
 _calloc_canonical(size_t size)
 {
-#if defined(__ANDROID__)
+#if OBJC_PORTABLE_RUNTIME
     return calloc(1, size);
 #else
     malloc_zone_malloc_options_t options = MALLOC_ZONE_MALLOC_OPTION_CLEAR;

@@ -30,7 +30,7 @@
 #include <malloc/malloc.h>
 #include <stdint.h>
 #include <stdbool.h>
-#if !defined(__ANDROID__)
+#if !defined(__ANDROID__) && !defined(__wasm__)
 #include <mach-o/dyld.h>
 #include <mach-o/nlist.h>
 #endif
@@ -40,7 +40,7 @@
 #include "NSObject-internal.h"
 #include "NSObject-private.h"
 
-#if !defined(__ANDROID__)
+#if !defined(__ANDROID__) && !defined(__wasm__)
 #include <mach/mach.h>
 #endif
 #include <sys/mman.h>
@@ -119,7 +119,9 @@ extern "C" void swift_release(id);
 
 ALWAYS_INLINE
 static void _initializeSwiftRefcounting() {
-#if defined(__ANDROID__)
+#if defined(__wasm__)
+    _objc_fatal("Swift Objective-C interoperability is not available on WebAssembly");
+#elif defined(__ANDROID__)
     auto retain = reinterpret_cast<id (*)(id)>(dlsym(RTLD_DEFAULT, "swift_retain"));
     auto release = reinterpret_cast<void (*)(id)>(dlsym(RTLD_DEFAULT, "swift_release"));
     if (!retain || !release) {
@@ -336,7 +338,11 @@ static bool weakTableScan() {
 }
 
 static void *weakTableScanThread(void *) {
-#if defined(__ANDROID__)
+#if defined(__wasm__)
+#if defined(__EMSCRIPTEN_PTHREADS__)
+    emscripten_set_thread_name(pthread_self(), "ObjC weak scan");
+#endif
+#elif defined(__ANDROID__)
     pthread_setname_np(pthread_self(), "ObjC weak scan");
 #else
     pthread_setname_np("ObjC weak reference scanner");

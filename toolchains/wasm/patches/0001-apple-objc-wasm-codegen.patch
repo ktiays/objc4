@@ -1,0 +1,448 @@
+--- a/clang/lib/CodeGen/CMakeLists.txt
++++ b/clang/lib/CodeGen/CMakeLists.txt
+@@ -90,6 +90,7 @@
+   CGObjC.cpp
+   CGObjCGNU.cpp
+   CGObjCMac.cpp
++  CGObjCWasm.cpp
+   CGObjCRuntime.cpp
+   CGOpenCLRuntime.cpp
+   CGOpenMPRuntime.cpp
+--- a/clang/lib/CodeGen/CGObjCMac.cpp
++++ b/clang/lib/CodeGen/CGObjCMac.cpp
+@@ -5953,12 +5953,12 @@
+     return ("__DATA," + Section + "," + MachOAttributes).str();
+   }
+   case llvm::Triple::ELF:
++  case llvm::Triple::Wasm:
+     assert(Section.starts_with("__") && "expected the name to begin with __");
+     return Section.substr(2).str();
+   case llvm::Triple::COFF:
+     assert(Section.starts_with("__") && "expected the name to begin with __");
+     return ("." + Section.substr(2) + "$B").str();
+-  case llvm::Triple::Wasm:
+   case llvm::Triple::GOFF:
+   case llvm::Triple::SPIRV:
+   case llvm::Triple::XCOFF:
+@@ -7079,7 +7079,10 @@
+       llvm::GlobalValue::PrivateLinkage, Init, SymbolName);
+   GV->setAlignment(CGM.getDataLayout().getABITypeAlign(Init->getType()));
+   GV->setSection(SectionName);
+-  CGM.addCompilerUsedGlobal(GV);
++  if (CGM.getTriple().isWasm())
++    CGM.addUsedGlobal(GV);
++  else
++    CGM.addCompilerUsedGlobal(GV);
+ }
+ 
+ void CGObjCNonFragileABIMac::FinishNonFragileABIModule() {
+--- a/clang/lib/CodeGen/CodeGenModule.cpp
++++ b/clang/lib/CodeGen/CodeGenModule.cpp
+@@ -11,6 +11,7 @@
+ //===----------------------------------------------------------------------===//
+ 
+ #include "CodeGenModule.h"
++#include "CGObjCWasm.h"
+ #include "ABIInfo.h"
+ #include "CGBlocks.h"
+ #include "CGCUDARuntime.h"
+@@ -1244,6 +1245,9 @@
+   EmitGlobalAnnotations();
+   EmitStaticExternCAliases();
+   checkAliases();
++  if (getTriple().isWasm() && (LangOpts.ObjC || LangOpts.Blocks))
++    emitObjCWasmDispatchers(*this);
++
+   EmitDeferredUnusedCoverageMappings();
+   CodeGenPGO(*this).setValueProfilingFlag(getModule());
+   CodeGenPGO(*this).setProfileVersion(getModule());
+--- a/clang/lib/CodeGen/CGObjCRuntime.cpp
++++ b/clang/lib/CodeGen/CGObjCRuntime.cpp
+@@ -156,15 +156,12 @@
+ 
+   CodeGenFunction::FinallyInfo FinallyInfo;
+   if (const ObjCAtFinallyStmt *Finally = S.getFinallyStmt()) {
+-    if (!useFunclets) {
++    if (!useFunclets || IsWasm) {
+       // The finally statement is executed as a cleanup for the normal and
+       // exceptional control flow out of a try-catch block. This is all
+       // implemented in FinallyInfo. Here we enter a new EHCatchScope.
+       FinallyInfo.enter(CGF, Finally->getFinallyBody(), beginCatchFn,
+                         endCatchFn, exceptionRethrowFn);
+-    } else if (IsWasm) {
+-      CGF.ErrorUnsupported(Finally,
+-                           "@finally is not implemented for WebAssembly");
+     } else if (IsMSVC) {
+       CodeGenFunction HelperCGF(CGM, /*suppressNewContext=*/true);
+       if (!CGF.CurSEHParent)
+@@ -179,7 +176,7 @@
+     }
+   }
+ 
+-  if (useFunclets)
++  if (useFunclets && !IsWasm)
+     if (const ObjCAtFinallyStmt *Finally = S.getFinallyStmt()) {
+       CodeGenFunction HelperCGF(CGM, /*suppressNewContext=*/true);
+       if (!CGF.CurSEHParent)
+@@ -328,12 +325,15 @@
+     CGF.WasmEmitFallthroughRethrow(WasmCatchStartBlock);
+   }
+ 
++  // Finally cleanups belong to the enclosing funclet, not to a catch handler.
++  CGF.CurrentFuncletPad = RestoreCurrentFuncletPad.get();
++
+   // Go back to the try-statement fallthrough.
+   CGF.Builder.restoreIP(SavedIP);
+ 
+   // Pop out of the finally.
+   if (S.getFinallyStmt()) {
+-    if (useFunclets) {
++    if (useFunclets && !IsWasm) {
+       CGF.PopCleanupBlock();
+     } else {
+       FinallyInfo.exit(CGF);
+--- a/clang/lib/CodeGen/CGException.cpp
++++ b/clang/lib/CodeGen/CGException.cpp
+@@ -1355,6 +1355,9 @@
+   // Leave the finally catch-all.
+   EHCatchScope &catchScope = cast<EHCatchScope>(*CGF.EHStack.begin());
+   llvm::BasicBlock *catchBB = catchScope.getHandler(0).Block;
++  llvm::BasicBlock *WasmDispatch = nullptr;
++  if (getEHPersonality(CGF).isWasmPersonality() && catchScope.hasEHBranches())
++    WasmDispatch = catchScope.getCachedEHDispatchBlock();
+ 
+   CGF.popCatchScope();
+ 
+@@ -1364,6 +1367,15 @@
+   } else {
+     CGBuilderTy::InsertPoint savedIP = CGF.Builder.saveAndClearIP();
+     CGF.EmitBlock(catchBB);
++    SaveAndRestore RestoreFunclet(CGF.CurrentFuncletPad);
++    llvm::CatchPadInst *WasmPad = nullptr;
++    if (WasmDispatch) {
++      auto *Switch = cast<llvm::CatchSwitchInst>(WasmDispatch->getFirstNonPHIIt());
++      auto *Start = Switch->hasUnwindDest() ? Switch->getSuccessor(1)
++                                          : Switch->getSuccessor(0);
++      WasmPad = cast<llvm::CatchPadInst>(Start->getFirstNonPHIIt());
++      CGF.CurrentFuncletPad = WasmPad;
++    }
+ 
+     llvm::Value *exn = nullptr;
+ 
+@@ -1381,6 +1393,16 @@
+ 
+     // Tell the cleanups in the finally block that we're do this for EH.
+     CGF.Builder.CreateFlagStore(true, ForEHVar);
++
++    // Leave the Wasm catchpad before entering the shared normal cleanup.
++    // The C++ catch remains active until PerformFinally ends or rethrows it,
++    // so a return/break/throw in @finally balances __cxa_begin/end_catch.
++    if (WasmPad) {
++      auto *Destination = CGF.createBasicBlock("finally.catchret");
++      CGF.Builder.CreateCatchRet(WasmPad, Destination);
++      CGF.EmitBlock(Destination);
++      CGF.CurrentFuncletPad = RestoreFunclet.get();
++    }
+ 
+     // Thread a jump through the finally cleanup.
+     CGF.EmitBranchThroughCleanup(RethrowDest);
+--- /dev/null
++++ b/clang/lib/CodeGen/CGObjCWasm.h
+@@ -0,0 +1,17 @@
++//===--- CGObjCWasm.h - Apple Objective-C on WebAssembly ----------*- C++ -*-===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++
++#ifndef LLVM_CLANG_LIB_CODEGEN_CGOBJCWASM_H
++#define LLVM_CLANG_LIB_CODEGEN_CGOBJCWASM_H
++
++namespace clang::CodeGen {
++class CodeGenModule;
++void emitObjCWasmDispatchers(CodeGenModule &CGM);
++}
++
++#endif
+--- /dev/null
++++ b/clang/lib/CodeGen/CGObjCWasm.cpp
+@@ -0,0 +1,277 @@
++//===--- CGObjCWasm.cpp - Apple Objective-C on WebAssembly ------------------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++
++#include "CGObjCWasm.h"
++#include "CodeGenModule.h"
++#include "llvm/ADT/SmallString.h"
++#include "llvm/IR/IRBuilder.h"
++#include "llvm/IR/IntrinsicInst.h"
++#include "llvm/Support/MD5.h"
++
++using namespace clang;
++using namespace clang::CodeGen;
++
++namespace {
++
++enum class DispatchKind { Message, Super, Super2, Forward };
++
++char signatureType(llvm::Type *Type) {
++  if (Type->isVoidTy()) return 'v';
++  if (Type->isPointerTy()) return 'p';
++  if (Type->isIntegerTy()) return Type->getIntegerBitWidth() <= 32 ? 'i' : 'j';
++  if (Type->isFloatTy()) return 'f';
++  if (Type->isDoubleTy()) return 'd';
++  return 'x';
++}
++
++std::string signature(CodeGenModule &CGM, llvm::FunctionType *Type,
++                      llvm::AttributeList Attrs) {
++  unsigned Flags = Attrs.hasParamAttr(0, llvm::Attribute::StructRet) ? 1 : 0;
++  if (Type->isVarArg()) Flags |= 2;
++  std::string Result(1, signatureType(Type->getReturnType()));
++  Result += ':' + std::to_string(Flags) + ':';
++  for (auto *Parameter : Type->params())
++    Result += signatureType(Parameter);
++  if (Type->isVarArg()) Result += 'p';
++  uint64_t Size = Type->getReturnType()->isVoidTy() ? 0 : 8;
++  if (Flags & 1)
++    Size = CGM.getDataLayout().getTypeAllocSize(Attrs.getParamStructRetType(0));
++  Result += ':' + std::to_string(Size);
++  return Result;
++}
++
++// Preserve the calling ABI while avoiding method-specific optimization
++// promises on a helper that performs lookup and initialization as well.
++llvm::AttributeList dispatcherAttributes(llvm::CallBase &Call) {
++  llvm::LLVMContext &Context = Call.getContext();
++  llvm::SmallVector<llvm::AttributeSet, 8> Parameters;
++  for (unsigned I = 0; I < Call.getFunctionType()->getNumParams(); ++I)
++    Parameters.push_back(Call.getAttributes().getParamAttrs(I));
++  return llvm::AttributeList::get(Context, {},
++                                 Call.getAttributes().getRetAttrs(), Parameters);
++}
++
++llvm::Function *getDispatcher(CodeGenModule &CGM, llvm::CallBase &Call,
++                              DispatchKind Kind) {
++  llvm::Module &Module = CGM.getModule();
++  llvm::LLVMContext &Context = Module.getContext();
++  llvm::FunctionType *Type = Call.getFunctionType();
++  auto Attributes = dispatcherAttributes(Call);
++  std::string Key;
++  llvm::raw_string_ostream Stream(Key);
++  Stream << unsigned(Kind) << ':' << Call.getCallingConv() << ':';
++  Type->print(Stream);
++  Attributes.print(Stream);
++  Stream << ':' << signature(CGM, Type, Attributes);
++  // Named IR records can have different layouts in different translation
++  // units. Include copy size/alignment so COMDAT never merges different ABIs.
++  for (unsigned I = 0; I < Type->getNumParams(); ++I) {
++    if (auto *ByVal = Call.getParamByValType(I))
++      Stream << ':' << CGM.getDataLayout().getTypeAllocSize(ByVal) << '/'
++             << CGM.getDataLayout().getABITypeAlign(ByVal).value();
++  }
++  llvm::MD5 Hash;
++  Hash.update(Key);
++  llvm::MD5::MD5Result Result;
++  Hash.final(Result);
++  llvm::SmallString<32> Digest;
++  llvm::MD5::stringifyResult(Result, Digest);
++  std::string Name = ("objc_wasm_msgSend_v1_" + Digest).str();
++  if (auto *Existing = Module.getFunction(Name))
++    return Existing;
++
++  auto *Function = llvm::Function::Create(
++      Type, llvm::GlobalValue::LinkOnceODRLinkage, Name, Module);
++  Function->setVisibility(llvm::GlobalValue::HiddenVisibility);
++  Function->setComdat(Module.getOrInsertComdat(Name));
++  Function->setCallingConv(Call.getCallingConv());
++  Function->setAttributes(Attributes);
++  Function->addFnAttr(llvm::Attribute::NoInline);
++
++  auto *Entry = llvm::BasicBlock::Create(Context, "entry", Function);
++  auto *Lookup = llvm::BasicBlock::Create(Context, "lookup", Function);
++  auto *Invoke = llvm::BasicBlock::Create(Context, "invoke", Function);
++  auto *Nil = llvm::BasicBlock::Create(Context, "nil", Function);
++  llvm::IRBuilder<> Builder(Entry);
++  auto *Pointer = Builder.getPtrTy();
++  unsigned ReceiverIndex = Call.paramHasAttr(0, llvm::Attribute::StructRet) ? 1 : 0;
++  llvm::SmallVector<llvm::Value *, 8> Arguments;
++  for (auto &Argument : Function->args())
++    Arguments.push_back(&Argument);
++  llvm::Value *Receiver = Arguments[ReceiverIndex];
++  llvm::Value *Selector = Arguments[ReceiverIndex + 1];
++  llvm::Value *StartClass = llvm::ConstantPointerNull::get(Pointer);
++  if (Kind == DispatchKind::Super || Kind == DispatchKind::Super2) {
++    auto *Super = Receiver;
++    Receiver = Builder.CreateLoad(Pointer, Super, "receiver");
++    auto *ClassAddress = Builder.CreateConstGEP1_64(
++        Builder.getInt8Ty(), Super, Module.getDataLayout().getPointerSize());
++    StartClass = Builder.CreateLoad(Pointer, ClassAddress, "start_class");
++    if (Kind == DispatchKind::Super2) {
++      auto *SuperclassAddress = Builder.CreateConstGEP1_64(
++          Builder.getInt8Ty(), StartClass,
++          Module.getDataLayout().getPointerSize());
++      StartClass = Builder.CreateLoad(Pointer, SuperclassAddress, "superclass");
++    }
++    Arguments[ReceiverIndex] = Receiver;
++  }
++  Builder.CreateCondBr(Builder.CreateIsNull(Receiver), Nil, Lookup);
++
++  Builder.SetInsertPoint(Lookup);
++  auto *Signature = CGM.GetAddrOfConstantCString(
++      signature(CGM, Type, Call.getAttributes())).getPointer();
++  llvm::CallInst *Implementation;
++  if (Kind == DispatchKind::Forward) {
++    auto Forward = Module.getOrInsertFunction(
++        "objc_wasm_forward_imp", llvm::FunctionType::get(Pointer, {Pointer}, false));
++    Implementation = Builder.CreateCall(Forward, {Signature}, "implementation");
++  } else {
++    auto LookupFunction = Module.getOrInsertFunction(
++        "objc_wasm_lookup",
++        llvm::FunctionType::get(Pointer, {Pointer, Pointer, Pointer, Pointer}, false));
++    Implementation = Builder.CreateCall(
++        LookupFunction, {Receiver, Selector, StartClass, Signature}, "implementation");
++  }
++  Builder.CreateCondBr(Builder.CreateIsNull(Implementation), Nil, Invoke);
++
++  Builder.SetInsertPoint(Invoke);
++  llvm::FunctionType *ImplementationType = Type;
++  if (Type->isVarArg()) {
++    // The Wasm C ABI passes the unnamed arguments in a caller-owned buffer.
++    // Forward that buffer rather than attempting to rebuild a C va_list.
++    auto *List = Builder.CreateAlloca(Pointer, nullptr, "varargs");
++    Builder.CreateIntrinsic(llvm::Intrinsic::vastart,
++                            llvm::ArrayRef<llvm::Type *>{Pointer},
++                            llvm::ArrayRef<llvm::Value *>{List});
++    Arguments.push_back(Builder.CreateLoad(Pointer, List, "varargs_buffer"));
++    llvm::SmallVector<llvm::Type *, 8> Parameters(Type->params());
++    Parameters.push_back(Pointer);
++    ImplementationType =
++        llvm::FunctionType::get(Type->getReturnType(), Parameters, false);
++  }
++  auto *Invocation =
++      Builder.CreateCall(ImplementationType, Implementation, Arguments);
++  Invocation->setCallingConv(Call.getCallingConv());
++  Invocation->setAttributes(Attributes);
++  bool HasByVal = false;
++  for (unsigned I = 0; I < Type->getNumParams(); ++I)
++    HasByVal |= Call.paramHasAttr(I, llvm::Attribute::ByVal);
++  // LLVM's Wasm backend cannot lower a tail call with byval operands.
++  if (!Type->isVarArg() && !HasByVal)
++    Invocation->setTailCallKind(llvm::CallInst::TCK_MustTail);
++  if (Type->getReturnType()->isVoidTy())
++    Builder.CreateRetVoid();
++  else
++    Builder.CreateRet(Invocation);
++
++  Builder.SetInsertPoint(Nil);
++  if (ReceiverIndex) {
++    llvm::Type *ResultType = Call.getParamStructRetType(0);
++    Builder.CreateMemSet(
++        Function->getArg(0), Builder.getInt8(0),
++        Module.getDataLayout().getTypeAllocSize(ResultType), llvm::MaybeAlign(1));
++  }
++  if (Type->getReturnType()->isVoidTy())
++    Builder.CreateRetVoid();
++  else
++    Builder.CreateRet(llvm::Constant::getNullValue(Type->getReturnType()));
++  return Function;
++}
++
++} // namespace
++
++void clang::CodeGen::emitObjCWasmDispatchers(CodeGenModule &CGM) {
++  if (!CGM.getTriple().isWasm())
++    return;
++  // Emit the compiler's actual lowered Block ABI. Objective-C type encodings
++  // alone lose details such as packed records and non-trivial C++ aggregates.
++  auto &Module = CGM.getModule();
++  auto *Pointer = llvm::PointerType::getUnqual(Module.getContext());
++  auto *RecordType = llvm::StructType::get(Pointer, Pointer);
++  for (auto &Function : Module) {
++    if (Function.isDeclaration() ||
++        !Function.getName().contains("_block_invoke"))
++      continue;
++    auto *Record = llvm::ConstantStruct::get(
++        RecordType,
++        {&Function, CGM.GetAddrOfConstantCString(
++             signature(CGM, Function.getFunctionType(), Function.getAttributes()))
++             .getPointer()});
++    auto *Global = new llvm::GlobalVariable(
++        Module, RecordType, true, llvm::GlobalValue::PrivateLinkage, Record,
++        "objc_wasm_block_abi");
++    Global->setSection("objc_wasm_block_abis");
++    Global->setAlignment(CGM.getDataLayout().getPointerABIAlignment(0));
++    CGM.addUsedGlobal(Global);
++  }
++  llvm::SmallVector<std::pair<llvm::CallBase *, DispatchKind>, 32> Calls;
++  llvm::SmallVector<llvm::CallBase *, 32> IndirectCalls;
++  for (auto &Function : CGM.getModule()) {
++    for (auto &Block : Function) {
++      for (auto &Instruction : Block) {
++        auto *Call = llvm::dyn_cast<llvm::CallBase>(&Instruction);
++        if (!Call)
++          continue;
++        auto *Callee = llvm::dyn_cast<llvm::Function>(
++            Call->getCalledOperand()->stripPointerCasts());
++        if (!Callee) {
++          // An escaped msgSend/forwarding pointer still acquires its ABI at the
++          // eventual typed call. Select a shared dispatcher without changing
++          // the call's unwind edges, funclet bundle, or argument evaluation.
++          auto *Type = Call->getFunctionType();
++          if (Type->getNumParams() < 2)
++            continue;
++          unsigned Self = Call->paramHasAttr(0, llvm::Attribute::StructRet) ? 1 : 0;
++          if (!Call->isInlineAsm() && Type->getNumParams() > Self + 1 &&
++              Type->getParamType(Self)->isPointerTy() &&
++              Type->getParamType(Self + 1)->isPointerTy())
++            IndirectCalls.push_back(Call);
++          continue;
++        }
++        auto Name = Callee->getName();
++        if (Name == "objc_msgSend" || Name == "objc_msgSend_stret" ||
++            Name == "objc_msgSend_fpret" || Name == "objc_msgSend_fp2ret")
++          Calls.emplace_back(Call, DispatchKind::Message);
++        else if (Name == "objc_msgSendSuper" || Name == "objc_msgSendSuper_stret")
++          Calls.emplace_back(Call, DispatchKind::Super);
++        else if (Name == "objc_msgSendSuper2" ||
++                 Name == "objc_msgSendSuper2_stret")
++          Calls.emplace_back(Call, DispatchKind::Super2);
++        else if (Name == "_objc_msgForward" || Name == "_objc_msgForward_stret" ||
++                 Name == "_objc_msgForward_impcache")
++          Calls.emplace_back(Call, DispatchKind::Forward);
++      }
++    }
++  }
++  for (auto [Call, Kind] : Calls)
++    Call->setCalledFunction(getDispatcher(CGM, *Call, Kind));
++  const std::pair<const char *, DispatchKind> Markers[] = {
++      {"objc_msgSend", DispatchKind::Message},
++      {"objc_msgSend_stret", DispatchKind::Message},
++      {"objc_msgSend_fpret", DispatchKind::Message},
++      {"objc_msgSend_fp2ret", DispatchKind::Message},
++      {"objc_msgSendSuper", DispatchKind::Super},
++      {"objc_msgSendSuper_stret", DispatchKind::Super},
++      {"objc_msgSendSuper2", DispatchKind::Super2},
++      {"objc_msgSendSuper2_stret", DispatchKind::Super2},
++      {"_objc_msgForward", DispatchKind::Forward},
++      {"_objc_msgForward_stret", DispatchKind::Forward},
++      {"_objc_msgForward_impcache", DispatchKind::Forward}};
++  auto *MarkerType = llvm::FunctionType::get(llvm::Type::getVoidTy(Module.getContext()), false);
++  for (auto *Call : IndirectCalls) {
++    llvm::IRBuilder<> Builder(Call);
++    llvm::Value *Original = Call->getCalledOperand();
++    llvm::Value *Callee = Original;
++    for (auto [Name, Kind] : Markers) {
++      auto Marker = Module.getOrInsertFunction(Name, MarkerType);
++      auto *Matches = Builder.CreateICmpEQ(Original, Marker.getCallee());
++      Callee = Builder.CreateSelect(Matches, getDispatcher(CGM, *Call, Kind), Callee);
++    }
++    Call->setCalledOperand(Callee);
++  }
++}

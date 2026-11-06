@@ -1,0 +1,24 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>@wasm_test_name@</title>
+<h1 id="status">Running @wasm_test_name@</h1>
+<pre id="output"></pre>
+<script>
+  function finish(code, error) {
+    if (finish.done) return;
+    finish.done = true;
+    document.getElementById('status').textContent =
+      (code === 0 ? 'PASS: ' : 'FAIL: ') + '@wasm_test_name@';
+    if (error) document.getElementById('output').textContent += error + '\n';
+    parent.postMessage({objc4Test: '@wasm_test_name@', code, error}, location.origin);
+  }
+  var Module = {
+    print(text) { document.getElementById('output').textContent += text + '\n'; },
+    printErr(text) { document.getElementById('output').textContent += text + '\n'; },
+    onExit(code) { finish(code); },
+    onAbort(error) { finish(1, String(error)); }
+  };
+  window.addEventListener('error', event => finish(1, event.message));
+  window.addEventListener('unhandledrejection', event => finish(1, String(event.reason)));
+</script>
+<script src="@wasm_test_name@.js"></script>

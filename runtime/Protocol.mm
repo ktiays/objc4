@@ -32,7 +32,7 @@
 
 #include <stdlib.h>
 #include <string.h>
-#if !defined(__ANDROID__)
+#if !defined(__ANDROID__) && !defined(__wasm__)
 #include <mach-o/dyld.h>
 #endif
 

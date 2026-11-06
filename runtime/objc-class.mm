@@ -164,7 +164,7 @@
 #include "objc-malloc-instance.h"
 #include <objc/message.h>
 
-#if !defined(__ANDROID__)
+#if !OBJC_PORTABLE_RUNTIME
 #include <os/linker_set.h>
 #endif
 
@@ -463,7 +463,11 @@ static void object_cxxDestructFromClass(id obj, Class cls)
                 _objc_inform("CXX: calling C++ destructors for class %s", 
                              cls->nameForLogging());
             }
+#if defined(__wasm__)
+            ((void (*)(id, SEL))dtor)(obj, SEL_cxx_destruct);
+#else
             (*dtor)(obj);
+#endif
         }
     }
 }
@@ -521,7 +525,11 @@ object_cxxConstructFromClass(id obj, Class cls, int flags)
         _objc_inform("CXX: calling C++ constructors for class %s", 
                      cls->nameForLogging());
     }
+#if defined(__wasm__)
+    if (((id (*)(id, SEL))ctor)(obj, SEL_cxx_construct)) return obj;
+#else
     if (fastpath((*ctor)(obj))) return obj;  // ctor called and succeeded - ok
+#endif
 
     supercls = cls->getSuperclass(); // this reload avoids a spill on the stack
 
@@ -925,7 +933,7 @@ inform_duplicate(const char *name, Class oldCls, Class newCls)
     const header_info *newHeader = _headerForClass(newCls);
     const char *oldName = oldHeader ? oldHeader->fname() : "??";
     const char *newName = newHeader ? newHeader->fname() : "??";
-#if !defined(__ANDROID__)
+#if !OBJC_PORTABLE_RUNTIME
     const objc_duplicate_class **_dupi = NULL;
     LINKER_SET_FOREACH(_dupi, const objc_duplicate_class **, "__objc_dupclass") {
         const objc_duplicate_class *dupi = *_dupi;

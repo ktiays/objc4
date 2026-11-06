@@ -26,6 +26,12 @@
 
 #include <TargetConditionals.h>
 
+#if defined(__ANDROID__) || defined(__wasm__)
+#define OBJC_PORTABLE_RUNTIME 1
+#else
+#define OBJC_PORTABLE_RUNTIME 0
+#endif
+
 // Avoid the !NDEBUG double negative.
 #if !NDEBUG
 #   define DEBUG 1
@@ -55,7 +61,7 @@
 #endif
 
 // Define SUPPORT_PREOPT=1 to enable dyld shared cache optimizations
-#if defined(__ANDROID__)
+#if OBJC_PORTABLE_RUNTIME
 #   define SUPPORT_PREOPT 0
 #else
 #   define SUPPORT_PREOPT 1
@@ -63,7 +69,7 @@
 
 // Define SUPPORT_TAGGED_POINTERS=1 to enable tagged pointer objects
 // Be sure to edit tagged pointer SPI in objc-internal.h as well.
-#if !__LP64__ || defined(__ANDROID__)
+#if !__LP64__ || OBJC_PORTABLE_RUNTIME
 #   define SUPPORT_TAGGED_POINTERS 0
 #else
 #   define SUPPORT_TAGGED_POINTERS 1
@@ -90,7 +96,7 @@
 
 // Define SUPPORT_PACKED_ISA=1 on platforms that store the class in the isa 
 // field as a maskable pointer with other data around it.
-#if (defined(__ANDROID__) || !__LP64__  ||  \
+#if (OBJC_PORTABLE_RUNTIME || !__LP64__  ||  \
      (TARGET_OS_SIMULATOR && !TARGET_OS_MACCATALYST && !__arm64__))
 #   define SUPPORT_PACKED_ISA 0
 #else
@@ -206,8 +212,8 @@
 #if __PTRAUTH_INTRINSICS__
 // Always use ptrauth when it's supported.
 #define CACHE_IMP_ENCODING CACHE_IMP_ENCODING_PTRAUTH
-#elif defined(__arm__)
-// 32-bit ARM uses no encoding.
+#elif defined(__arm__) || defined(__wasm__)
+// 32-bit ARM and Wasm use no encoding.
 #define CACHE_IMP_ENCODING CACHE_IMP_ENCODING_NONE
 #else
 // Everything else uses ISA ^ IMP.
@@ -336,7 +342,7 @@
 #define HAVE_CLOCK_GETTIME_NSEC_NP 0
 #endif
 
-#if   TARGET_OS_MAC || defined(__ANDROID__)
+#if   TARGET_OS_MAC || OBJC_PORTABLE_RUNTIME
 #define HAVE_ASPRINTF   1
 #else
 #define HAVE_ASPRINTF   0
@@ -350,7 +356,7 @@
 
 #if   TARGET_OS_MAC
 #   define OBJC_THREADING_PACKAGE OBJC_THREADING_DARWIN
-#elif defined(__ANDROID__)
+#elif OBJC_PORTABLE_RUNTIME
 #   define OBJC_THREADING_PACKAGE OBJC_THREADING_PTHREADS
 #elif __has_include(<threads.h>)
 #   define OBJC_THREADING_PACKAGE  OBJC_THREADING_C11THREADS

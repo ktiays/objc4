@@ -31,7 +31,7 @@
 // classlist and catlist and protolist sections are marked const here
 // because those sections may be in read-only __DATA_CONST segments.
 
-#if !defined(__ANDROID__)
+#if !OBJC_PORTABLE_RUNTIME
 static inline void
 foreach_data_segment(const headerType *mhdr,
                      std::function<void(const segmentType *, intptr_t slide)> code)
@@ -67,7 +67,11 @@ static inline void
 foreach_data_segment(const headerType *header,
                      std::function<void(const segmentType *, intptr_t)> code)
 {
+#if defined(__wasm__)
+    auto image = reinterpret_cast<const objc_wasm_image *>(header);
+#else
     auto image = reinterpret_cast<const objc_android_image *>(header);
+#endif
     for (size_t i = 0; i < image->rangeCount; ++i) {
         code(&image->ranges[i], 0);
     }

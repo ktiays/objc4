@@ -1,5 +1,12 @@
 cmake_minimum_required(VERSION 3.24)
-project(objc4 LANGUAGES C CXX ASM)
+project(objc4 LANGUAGES C CXX)
+
+if(EMSCRIPTEN)
+    include(platform/wasm/objc4-wasm.cmake)
+    return()
+endif()
+
+enable_language(ASM)
 
 if(NOT ANDROID OR NOT CMAKE_ANDROID_ARCH_ABI STREQUAL "arm64-v8a")
     message(FATAL_ERROR "The CMake port currently targets Android arm64-v8a. Apple builds continue to use objc.xcodeproj.")

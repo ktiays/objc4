@@ -82,6 +82,8 @@
 #include "objc-private.h"
 #if defined(__ANDROID__)
 #include "objc-cache-android.h"
+#elif defined(__wasm__)
+#include "objc-cache-wasm.h"
 #endif
 
 #if OBJC_USE_ROSETTA
@@ -89,7 +91,7 @@
 #include <Rosetta/Rosetta.h>
 #endif
 
-#if __arm__  ||  __x86_64__  ||  __i386__
+#if __arm__  ||  __x86_64__  ||  __i386__ || defined(__wasm__)
 
 // objc_msgSend has few registers available.
 // Cache scan increments and wraps at special end-marking bucket.
@@ -219,7 +221,13 @@ static void recordDeadCache(mask_t capacity)
 
 // "cache" is cache->buckets; "vtable" is cache->mask/occupied
 // hack to avoid conflicts with compiler's internal declaration
-#if defined(__ANDROID__)
+#if defined(__wasm__)
+struct alignas(16) objc_cache { unsigned char bytes[EMPTY_BYTES]; };
+extern "C" {
+__attribute__((used)) struct objc_cache _objc_empty_cache = {};
+__attribute__((used)) IMP _objc_empty_vtable = nullptr;
+}
+#elif defined(__ANDROID__)
 asm("\n .section .rodata,\"a\",@progbits"
     "\n .globl _objc_empty_vtable"
     "\n .set _objc_empty_vtable, 0"
@@ -358,6 +366,9 @@ void bucket_t::set(bucket_t *base, SEL newSel, IMP newImp, Class cls)
 template<Atomicity atomicity, IMPEncoding impEncoding>
 void bucket_t::set(bucket_t *base, SEL newSel, IMP newImp, Class cls)
 {
+#if defined(__wasm__)
+    objc_wasm_cache_writer writer(cls);
+#endif
     ASSERT(_sel.load(memory_order_relaxed) == 0 ||
            _sel.load(memory_order_relaxed) == newSel);
 
@@ -378,7 +389,7 @@ void bucket_t::set(bucket_t *base, SEL newSel, IMP newImp, Class cls)
 #ifdef __arm__
             mega_barrier();
             _sel.store(newSel, memory_order_relaxed);
-#elif __x86_64__ || __i386__
+#elif __x86_64__ || __i386__ || defined(__wasm__)
             _sel.store(newSel, memory_order_release);
 #else
 #error Do not know how to do bucket_t::set on this architecture.
@@ -609,6 +620,8 @@ void cache_t::setBucketsAndMask(struct bucket_t *newBuckets, mask_t newMask)
     static_assert(offsetof(cache_t, _mask) + offsetof(objc_class, cache) ==
                   OBJC_ANDROID_CACHE_MASK_OFFSET);
     objc_android_cache_writer writer(cls());
+#elif defined(__wasm__)
+    objc_wasm_cache_writer writer(cls());
 #endif
     // objc_msgSend uses mask and buckets with no locks.
     // It is safe for objc_msgSend to see new buckets but old mask.
@@ -628,7 +641,7 @@ void cache_t::setBucketsAndMask(struct bucket_t *newBuckets, mask_t newMask)
 
     _mask.store(newMask, memory_order_relaxed);
     _occupied = 0;
-#elif __x86_64__ || i386 || defined(__ANDROID__)
+#elif __x86_64__ || i386 || defined(__ANDROID__) || defined(__wasm__)
     // ensure other threads see buckets contents before buckets pointer
     _bucketsAndMaybeMask.store((uintptr_t)newBuckets, memory_order_release);
 
@@ -1053,6 +1066,12 @@ void cache_t::destroy()
         if (DebugScribbleCaches) { memset(oldBuckets, 0xa5, bytesForCapacity(oldCapacity)); }
         objc_android_cache_record_reclaim(bytesForCapacity(oldCapacity));
         free(oldBuckets);
+#elif defined(__wasm__)
+        auto oldBuckets = buckets();
+        auto oldCapacity = capacity();
+        setBucketsAndMask(emptyBuckets(), 0);
+        if (DebugScribbleCaches) { memset(oldBuckets, 0xa5, bytesForCapacity(oldCapacity)); }
+        free(oldBuckets);
 #else
         free(buckets());
 #endif
@@ -1070,7 +1089,7 @@ void cache_t::destroy()
 // Must not be zero - thread_get_state() on a new thread returns PC == 0.
 #define PC_SENTINEL  1
 
-#if !defined(__ANDROID__)
+#if !OBJC_PORTABLE_RUNTIME
 static uintptr_t _get_pc_for_thread(thread_t thread)
 #if defined(__i386__)
 {
@@ -1177,7 +1196,7 @@ void cache_t::init()
 
 static int _collecting_in_critical(void)
 {
-#if defined(__ANDROID__)
+#if OBJC_PORTABLE_RUNTIME
     return true;
 #else
 #if HAVE_TASK_RESTARTABLE_RANGES
@@ -1337,11 +1356,13 @@ void cache_t::collect_free(bucket_t *data, mask_t capacity)
 
     if (PrintCaches) recordDeadCache(capacity);
 
-#if defined(__ANDROID__)
+#if OBJC_PORTABLE_RUNTIME
     // setBucketsAndMask closed reader admission and drained all users of the
     // old array before publishing its replacement. New readers cannot reach it.
     if (DebugScribbleCaches) { memset(data, 0xa5, bytesForCapacity(capacity)); }
+#if defined(__ANDROID__)
     objc_android_cache_record_reclaim(bytesForCapacity(capacity));
+#endif
     free(data);
     return;
 #endif
@@ -1359,8 +1380,8 @@ void cache_t::collect_free(bucket_t *data, mask_t capacity)
 **********************************************************************/
 void cache_t::collectNolock(bool collectALot)
 {
-#if defined(__ANDROID__)
-    // Android retires arrays synchronously after its per-shard reader barrier;
+#if OBJC_PORTABLE_RUNTIME
+    // Portable runtimes retire arrays synchronously after their reader barrier;
     // no arrays enter the Mach cache-collection queue.
     return;
 #endif

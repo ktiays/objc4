@@ -1,6 +1,6 @@
 # objc4
 
-An Android arm64 port of Apple's current public Objective-C runtime sources.
+Android arm64 and Emscripten wasm32 ports of Apple's public Objective-C runtime sources.
 The upstream baseline is **objc4-951.1**, commit
 `fb265098298302243cd7eeaa1f63f0ba7786dd9a` from
 [apple-oss-distributions/objc4](https://github.com/apple-oss-distributions/objc4).
@@ -36,10 +36,26 @@ before embedding it in an application.
 Run `./scripts/benchmark-android.sh` to compare Release cache-hit dispatch
 against a build with the cache fast path disabled on the same device.
 
+## WebAssembly quick start
+
+Install CMake, Ninja, Python 3.12 or newer, and Node.js, then:
+
+```sh
+python3 scripts/prepare-wasm-toolchain.py --jobs 8
+./scripts/test-wasm.sh Debug single
+./scripts/test-wasm.sh Release threads
+```
+
+The bootstrap downloads checksum-pinned Emscripten and LLVM archives and builds
+the patched compiler under ignored `build/wasm-toolchain/`. Git contains the
+version manifest, compiler patch, build scripts, and runtime port.
+The output is `libobjc4.a` with Apple ABI headers. See
+[Wasm integration, forwarding, build scaling and validation](docs/wasm.md).
+
 ## Keeping the upstream current
 
-Apple code remains in `runtime/`; Android-specific implementations live in
-`platform/android/`. Shared-source changes are guarded where their semantics
+Apple code remains in `runtime/`; platform implementations live in
+`platform/android/` and `platform/wasm/`. Shared-source changes are guarded where their semantics
 differ. Update from Apple's public source releases through the `upstream` remote,
 and run the Android validation after resolving changes:
 

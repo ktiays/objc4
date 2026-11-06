@@ -40,7 +40,15 @@
 
 #include <TargetConditionals.h>
 
-#if defined(__ANDROID__)
+#if defined(__wasm__)
+// Allocation pages used by the runtime, independently of Wasm memory pages.
+#  undef PAGE_SIZE
+#  define PAGE_SIZE       4096
+#  define PAGE_MIN_SIZE   4096
+#  define PAGE_MAX_SIZE   4096
+#  define PAGE_MAX_SHIFT  12
+#  define OBJC_VM_MAX_ADDRESS  (~(uintptr_t)3)
+#elif defined(__ANDROID__)
 // Runtime allocation pages, not a claim about the kernel's mmap page size.
 // Android VM operations must query sysconf(_SC_PAGESIZE).
 #  define PAGE_SIZE       16384
