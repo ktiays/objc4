@@ -18,7 +18,9 @@ def main():
     report.mkdir(parents=True, exist_ok=True)
     configurations = [
         "wasm-single-Debug" if (build / "wasm-single-Debug").exists() else "wasm-Debug",
-        "wasm-single-Release", "wasm-threads-Debug", "wasm-threads-Release"
+        "wasm-single-Release", "wasm-threads-Debug", "wasm-threads-Release",
+        "wasm64-single-Debug", "wasm64-single-Release",
+        "wasm64-threads-Debug", "wasm64-threads-Release"
     ]
     tests = []
     for configuration in configurations:

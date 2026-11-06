@@ -65,8 +65,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--count", type=int, default=128)
     parser.add_argument("--jobs", type=int, default=8)
-    parser.add_argument("--root", type=Path, default=REPOSITORY / "build/wasm-large-project")
+    parser.add_argument("--root", type=Path)
+    parser.add_argument("--memory64", action="store_true", help="Build the fixture for wasm64")
     options = parser.parse_args()
+    if options.root is None:
+        name = "wasm64-large-project" if options.memory64 else "wasm-large-project"
+        options.root = REPOSITORY / "build" / name
     if options.count < 2 or options.jobs < 1:
         parser.error("--count must be at least 2; --jobs must be positive")
     if not shutil.which("emcmake"):
@@ -107,8 +111,10 @@ def main():
         'target_link_options(application PRIVATE -sEXIT_RUNTIME=1)\n'
         'target_link_libraries(application PRIVATE business)\n')
     started = time.monotonic()
+    architecture = (["-DCMAKE_C_FLAGS=-sMEMORY64=1", "-DCMAKE_CXX_FLAGS=-sMEMORY64=1"]
+                    if options.memory64 else [])
     configuration = run(["emcmake", "cmake", "-S", source, "-B", build, "-G", "Ninja",
-                         "-DCMAKE_BUILD_TYPE=Debug"])
+                         "-DCMAKE_BUILD_TYPE=Debug", *architecture])
     (root / "configure.log").write_text(configuration.stdout + configuration.stderr)
     full = run(["cmake", "--build", build, "--parallel", options.jobs])
     (root / "full-build.log").write_text(full.stdout + full.stderr)
@@ -135,7 +141,8 @@ def main():
     assert changed == ["unit_0.m.o"], changed
     assert runtime.stat().st_mtime_ns == runtime_time, "The runtime was rebuilt unnecessarily"
     run(["node", build / "application.js"])
-    report = {"translation_units": options.count, "forced_lto": False,
+    report = {"architecture": "wasm64" if options.memory64 else "wasm32",
+              "translation_units": options.count, "forced_lto": False,
               "common_dispatcher_definitions": names.count(dispatchers[0]),
               "incremental_objects": changed, "runtime_rebuilt": False,
               "initial_seconds": round(initial_seconds, 2),

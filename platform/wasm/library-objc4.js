@@ -14,6 +14,27 @@ addToLibrary({
   $objc4Adapters: {
     templates: new Map(),
 
+    // Pointer-width encodings for adapter modules. wasm64 builds use native
+    // memory64 and table64: pointers, function-table indices, __memory_base
+    // and __table_base are i64, and memory/table imports carry the 64-bit flag.
+#if MEMORY64
+    pointerType: 0x7e,
+    pointerConst: 0x42,
+    pointerLoad: [0x29, 3],
+    pointerStore: [0x37, 3],
+    pointerAtomicLoad: [0xfe, 0x11, 3],
+    addressFlag: 4,
+    blockInvokeOffset: 16, // Block_layout: isa, flags, reserved, invoke
+#else
+    pointerType: 0x7f,
+    pointerConst: 0x41,
+    pointerLoad: [0x28, 2],
+    pointerStore: [0x36, 2],
+    pointerAtomicLoad: [0xfe, 0x10, 2],
+    addressFlag: 0,
+    blockInvokeOffset: 12,
+#endif
+
     unsigned(value) {
       var bytes = [];
       do {
@@ -42,36 +63,43 @@ addToLibrary({
       if (this.templates.has(key)) return this.templates.get(key);
       var [result, flags, argumentString] = signature.split(':');
       var arguments_ = Array.from(argumentString);
-      var valueTypes = {p: 0x7f, i: 0x7f, j: 0x7e, f: 0x7d, d: 0x7c};
+      var pointer = this.pointerType;
+      var valueTypes = {p: pointer, i: 0x7f, j: 0x7e, f: 0x7d, d: 0x7c};
       if ((result !== 'v' && !valueTypes[result]) || arguments_.some(x => !valueTypes[x])) {
         throw new Error('Unsupported Objective-C adapter ABI: ' + signature);
       }
       var functionType = [0x60, ...this.vector(arguments_.map(x => [valueTypes[x]])),
                           ...this.vector(result === 'v' ? [] : [[valueTypes[result]]])];
-      var invokeType = [0x60, 3, 0x7f, 0x7f, 0x7f, 0];
-      var tlsType = [0x60, 0, 1, 0x7f];
+      var invokeType = [0x60, 3, pointer, pointer, pointer, 0];
+      var tlsType = [0x60, 0, 1, pointer];
       var imports = [];
       var import_ = (name, kind, type) => [...this.string('env'), ...this.string(name), kind, ...type];
       if (!block) imports.push(import_('objc4_forward', 0, [0]));
       imports.push(import_('memory', 2,
 #if PTHREADS
-        [3, 0, ...this.unsigned(65536)]
+        // A shared memory import declares a maximum no smaller than the
+        // program memory's maximum.
+#if MEMORY64
+        [3 | this.addressFlag, 0, ...this.unsigned({{{ Math.ceil(MAXIMUM_MEMORY / WASM_PAGE_SIZE) }}})]
 #else
-        [0, 0]
+        [3, 0, ...this.unsigned(65536)]
+#endif
+#else
+        [this.addressFlag, 0]
 #endif
       ));
-      imports.push(import_('__indirect_function_table', 1, [0x70, 0, 0]));
-      imports.push(import_('__memory_base', 3, [0x7f, 0]));
-      imports.push(import_('__table_base', 3, [0x7f, 0]));
+      imports.push(import_('__indirect_function_table', 1, [0x70, this.addressFlag, 0]));
+      imports.push(import_('__memory_base', 3, [pointer, 0]));
+      imports.push(import_('__table_base', 3, [pointer, 0]));
       var bodies = [];
       var adapter = [0]; // No locals.
       var receiver = Number(flags) & 1 ? 1 : 0;
       var localGet = index => [0x20, ...this.unsigned(index)];
       var bindingLoad = () => [0x23, 0,
 #if PTHREADS
-        0xfe, 0x10, 2, 0 // i32.atomic.load, acquire the published Block pointer
+        ...this.pointerAtomicLoad, 0 // Acquire the published Block pointer
 #else
-        0x28, 2, 0
+        ...this.pointerLoad, 0
 #endif
       ];
       if (block) {
@@ -84,15 +112,16 @@ addToLibrary({
         for (var i = receiver + 2; i < arguments_.length; ++i) {
           adapter.push(...localGet(i));
         }
-        adapter.push(...bindingLoad(), 0x28, 2, 12); // Block_layout.invoke
+        adapter.push(...bindingLoad(), ...this.pointerLoad,
+                     ...this.unsigned(this.blockInvokeOffset)); // Block_layout.invoke
         adapter.push(0x13, 0, 0, 0x0b); // return_call_indirect, type 0, table 0
       } else {
         for (var i = 0; i < arguments_.length; ++i) adapter.push(...localGet(i));
         adapter.push(0x12, 0, 0x0b); // return_call the typed forwarding import
       }
       bodies.push([...this.unsigned(adapter.length), ...adapter]);
-      var loads = {p: [0x28, 2], i: [0x28, 2], j: [0x29, 3], f: [0x2a, 2], d: [0x2b, 3]};
-      var stores = {p: [0x36, 2], i: [0x36, 2], j: [0x37, 3], f: [0x38, 2], d: [0x39, 3]};
+      var loads = {p: this.pointerLoad, i: [0x28, 2], j: [0x29, 3], f: [0x2a, 2], d: [0x2b, 3]};
+      var stores = {p: this.pointerStore, i: [0x36, 2], j: [0x37, 3], f: [0x38, 2], d: [0x39, 3]};
       if (!block) {
         // void invoke(slot_array, result_slot, IMP): the complete original ABI.
         var invoke = [0];
@@ -107,7 +136,7 @@ addToLibrary({
       }
       // The pthread dynamic linker calls this for every module, even when the
       // module has no TLS exports. Zero denotes an empty TLS allocation.
-      bodies.push([4, 0, 0x41, 0, 0x0b]);
+      bodies.push([4, 0, this.pointerConst, 0, 0x0b]);
       var count = block ? 1 : 2;
       var firstFunction = block ? 0 : 1;
       var exports_ = [
@@ -118,7 +147,8 @@ addToLibrary({
       if (!block) exports_.push([...this.string('objc_invoke'), 0, 2]);
       var elements = [1, 0, 0x23, 1, 0x0b, count, firstFunction];
       if (!block) elements.push(2);
-      var memoryInfo = [4, 2, count, 0]; // 4-byte binding cell, alignment 4
+      // One pointer-sized binding cell with natural alignment.
+      var memoryInfo = [{{{ POINTER_SIZE }}}, {{{ Math.log2(POINTER_SIZE) }}}, count, 0];
       var dylink = [...this.string('dylink.0'), 1, memoryInfo.length, ...memoryInfo];
       var bytes = new Uint8Array([
         0, 0x61, 0x73, 0x6d, 1, 0, 0, 0,
@@ -126,7 +156,7 @@ addToLibrary({
         ...this.section(1, this.vector(block ? [functionType, tlsType] : [functionType, invokeType, tlsType])),
         ...this.section(2, this.vector(imports)),
         ...this.section(3, this.vector(block ? [[0], [1]] : [[0], [1], [2]])),
-        ...this.section(6, [1, 0x7f, 0, 0x41, 0, 0x0b]),
+        ...this.section(6, [1, pointer, 0, this.pointerConst, 0, 0x0b]),
         ...this.section(7, this.vector(exports_)),
         ...this.section(9, elements),
         ...this.section(10, this.vector(bodies))
@@ -136,34 +166,54 @@ addToLibrary({
       return template;
     },
 
+    // Wasm passes i64 values, including wasm64 pointers, to JS as BigInt.
     forward(template, cell, args) {
       var saved = stackSave();
       try {
-        var frame = stackAlloc((args.length + 1) * 8);
+        var frame = {{{ from64Expr('stackAlloc((args.length + 1) * 8)') }}};
         var result = frame + args.length * 8;
-        HEAPU32[result >> 2] = 0;
-        HEAPU32[(result + 4) >> 2] = 0;
+        HEAPU32[result / 4] = 0;
+        HEAPU32[(result + 4) / 4] = 0;
         for (var i = 0; i < args.length; ++i) {
           var offset = frame + i * 8;
           switch (template.arguments_[i]) {
-            case 'p': case 'i':
-              HEAPU32[offset >> 2] = args[i]; HEAPU32[(offset + 4) >> 2] = 0; break;
-            case 'j': HEAP64[offset >> 3] = args[i]; break;
-            case 'f': HEAPF32[offset >> 2] = args[i]; break;
-            case 'd': HEAPF64[offset >> 3] = args[i]; break;
+#if MEMORY64
+            case 'p': HEAP64[offset / 8] = args[i]; break;
+#else
+            case 'p':
+#endif
+            case 'i':
+              HEAPU32[offset / 4] = args[i]; HEAPU32[(offset + 4) / 4] = 0; break;
+            case 'j': HEAP64[offset / 8] = args[i]; break;
+            case 'f': HEAPF32[offset / 4] = args[i]; break;
+            case 'd': HEAPF64[offset / 8] = args[i]; break;
           }
         }
+#if MEMORY64
 #if PTHREADS
-        var context = Atomics.load(HEAPU32, cell >> 2);
+        var context = Atomics.load(HEAP64, cell / 8);
 #else
-        var context = HEAPU32[cell >> 2];
+        var context = HEAP64[cell / 8];
+#endif
+        _objc_wasm_forward_invoke(context, BigInt(frame), BigInt(result));
+#else
+#if PTHREADS
+        var context = Atomics.load(HEAPU32, cell / 4);
+#else
+        var context = HEAPU32[cell / 4];
 #endif
         _objc_wasm_forward_invoke(context, frame, result);
+#endif
         switch (template.result) {
-          case 'p': case 'i': return HEAPU32[result >> 2];
-          case 'j': return HEAP64[result >> 3];
-          case 'f': return HEAPF32[result >> 2];
-          case 'd': return HEAPF64[result >> 3];
+#if MEMORY64
+          case 'p': return HEAP64[result / 8];
+          case 'i': return HEAPU32[result / 4];
+#else
+          case 'p': case 'i': return HEAPU32[result / 4];
+#endif
+          case 'j': return HEAP64[result / 8];
+          case 'f': return HEAPF32[result / 4];
+          case 'd': return HEAPF64[result / 8];
         }
       } finally {
         stackRestore(saved);
@@ -194,7 +244,7 @@ addToLibrary({
   },
 
   objc_wasm_prepare_adapter__deps: ['$objc4Adapters'],
-  objc_wasm_prepare_adapter__sig: 'iiii',
+  objc_wasm_prepare_adapter__sig: 'ippi',
   objc_wasm_prepare_adapter__proxy: 'sync',
   objc_wasm_prepare_adapter: (path, signature, block) => {
     try {
@@ -208,7 +258,7 @@ addToLibrary({
   },
 
   objc_wasm_discard_adapter_file__deps: ['$FS', '$UTF8ToString'],
-  objc_wasm_discard_adapter_file__sig: 'vi',
+  objc_wasm_discard_adapter_file__sig: 'vp',
   objc_wasm_discard_adapter_file__proxy: 'sync',
   objc_wasm_discard_adapter_file: (path) => FS.unlink(UTF8ToString(path))
 });

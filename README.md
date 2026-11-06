@@ -1,6 +1,6 @@
 # objc4
 
-Android arm64, Windows ARM64/x64, and Emscripten wasm32 ports of Apple's public Objective-C runtime sources.
+Android arm64, Windows ARM64/x64, and Emscripten wasm32/wasm64 ports of Apple's public Objective-C runtime sources.
 The upstream baseline is **objc4-951.1**, commit
 `fb265098298302243cd7eeaa1f63f0ba7786dd9a` from
 [apple-oss-distributions/objc4](https://github.com/apple-oss-distributions/objc4).
@@ -59,6 +59,7 @@ Install CMake, Ninja, Python 3.12 or newer, and Node.js, then:
 python3 scripts/prepare-wasm-toolchain.py --jobs 8
 ./scripts/test-wasm.sh Debug single
 ./scripts/test-wasm.sh Release threads
+./scripts/test-wasm.sh Release threads wasm64
 ```
 
 The bootstrap downloads checksum-pinned Emscripten and LLVM archives and builds

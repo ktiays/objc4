@@ -1,6 +1,7 @@
 # WebAssembly port
 
-This experimental port builds objc4-951.1 for Emscripten wasm32. It retains the
+This experimental port builds objc4-951.1 for Emscripten wasm32 and wasm64
+(memory64). It retains the
 Apple non-fragile metadata ABI and upstream class, selector, protocol, category,
 ARC, weak-reference, property, synchronization and autorelease-pool code. It does
 not require libobjc2 or Foundation.
@@ -16,7 +17,14 @@ python3 scripts/prepare-wasm-toolchain.py --jobs 8
 ./scripts/test-wasm.sh Release single
 ./scripts/test-wasm.sh Debug threads
 ./scripts/test-wasm.sh Release threads
+./scripts/test-wasm.sh Debug single wasm64
+./scripts/test-wasm.sh Release single wasm64
+./scripts/test-wasm.sh Debug threads wasm64
+./scripts/test-wasm.sh Release threads wasm64
 ```
+
+The optional third argument selects `wasm32` (default) or `wasm64`. Both use the
+same compiler; no wasm64-specific toolchain is built.
 
 The manifest in `toolchains/wasm/versions.json` pins Emscripten 6.0.13, the SDK
 archive SHA-256, and LLVM commit
@@ -31,9 +39,10 @@ object files. Use `OBJC_BUILD_JOBS`, `OBJC_WASM_TOOLCHAIN_ROOT` and
 `OBJC_WASM_BUILD_DIR` to override the defaults. The bootstrap accepts
 `--node /absolute/path/to/node`, `--download-only`, and `--prepare-only`.
 
-Build products are `build/wasm-{single,threads}-{Debug,Release}/libobjc4.a`, copied
-headers under `include/objc/`, and the test executables. The single-thread and
-pthread archives are separate configurations and must match their consumers.
+Build products are `build/wasm-{single,threads}-{Debug,Release}/libobjc4.a` for
+wasm32 and `build/wasm64-{single,threads}-{Debug,Release}/libobjc4.a` for wasm64,
+copied headers under `include/objc/`, and the test executables. The thread mode
+and pointer width are separate configurations and must match their consumers.
 
 ## Integrate a project
 
@@ -57,6 +66,21 @@ add_executable(application main.m)
 set_target_properties(application PROPERTIES LINKER_LANGUAGE CXX)
 objc4_add_wasm_module(application)
 ```
+
+For wasm64, configure the consumer the way Emscripten selects wasm64 for CMake:
+
+```sh
+emcmake cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_FLAGS=-sMEMORY64=1 -DCMAKE_CXX_FLAGS=-sMEMORY64=1
+```
+
+objc4 derives the target from `CMAKE_SIZEOF_VOID_P`. It adds `-sMEMORY64=1` to
+the compile and link options of `objc4_add_wasm_module` targets, because CMake's
+Objective-C flags do not inherit `CMAKE_C_FLAGS`. Every object in the program,
+including plain C/C++ libraries, must be built for the same pointer width.
+Only native memory64 and table64 (`MEMORY64=1`) are supported. `MEMORY64=2`
+lowers the main module with wasm-opt, which cannot apply to adapter modules
+generated at run time, so configuration rejects it.
 
 Call `objc4_add_wasm_module` for business-code static libraries as well. It
 supplies headers, Apple ABI 26.0, Blocks, native Wasm EH, PIC, and the runtime
@@ -123,6 +147,12 @@ atomic release/acquire operations. Table entries remain installed and reusable;
 removal clears the Block binding and releases its copy. Callers must finish
 uses of an IMP before removing it, as with the native API.
 
+On wasm64 the generated modules import memory64 and table64, use i64 for
+pointers, function-table indices, `__memory_base` and `__table_base`, and read
+the Block `invoke` field at offset 16. JS receives i64 values as BigInt;
+heap indices are computed by division so addresses beyond 2 GiB and 4 GiB index
+correctly.
+
 Dynamic adapters currently cover pointers, i32/i64, f32/f64, indirect aggregates,
 single-element aggregate coercions and variadic buffers. SIMD vectors and other
 extended scalar ABIs need additional adapter encoding support. Ordinary method
@@ -130,9 +160,15 @@ sends preserve the compiler's original LLVM function signature.
 
 ## Validation and scale
 
-The four build configurations pass 14 tests in Node.js 25.9.0 and the user's
-Chrome 156. Browser results are saved by the local harness under
-`build/wasm-browser/results.json`. Run the browser matrix with:
+The four wasm32 configurations pass 14 tests in Node.js 25.9.0 and the user's
+Chrome 156. The four wasm64 configurations pass 18 tests in Node.js 25.9.0; the
+additional wasm64 test links with `GLOBAL_BASE` at 4 GiB. Compiler-emitted
+metadata, the stack, the heap, runtime-created classes, method caches, Block
+copies, adapter binding cells and forwarding frames then all have nonzero upper
+address bits. The browser harness includes any built wasm64 configurations;
+that test reserves an initial memory slightly above 4 GiB. Browser results are
+saved by the local harness under `build/wasm-browser/results.json`. Run the
+browser matrix with:
 
 ```sh
 python3 scripts/serve-wasm-tests.py
@@ -141,7 +177,8 @@ python3 scripts/serve-wasm-tests.py
 
 The server binds only to loopback and supplies COOP/COEP headers. Pthreads need
 cross-origin isolation, shared memory and Workers. Dispatch requires Wasm tail
-calls; exceptions require Wasm EH; adapters require runtime Wasm compilation.
+calls; exceptions require Wasm EH; adapters require runtime Wasm compilation;
+wasm64 requires native memory64 and table64 (Chrome 133 or Node.js 24 and later).
 Emscripten labels dynamic linking with pthreads experimental, so the passing
 matrix is the current validation boundary.
 
@@ -155,6 +192,7 @@ method caches and exercising object lifetimes.
 ```sh
 source build/wasm-toolchain/env.sh
 python3 scripts/test-wasm-large-project.py --count 128 --jobs 8
+python3 scripts/test-wasm-large-project.py --count 128 --jobs 8 --memory64
 ```
 
 The 128-translation-unit fixture links ObjC business files with an ObjC++ entry
@@ -163,9 +201,9 @@ uses no forced LTO, executes the linked program, then edits one source file.
 Exactly that object is rebuilt; the runtime archive remains unchanged. The
 recorded timings are fixture measurements affected by SDK and build-cache
 state, not projections for an arbitrary production project. Results and logs live under
-`build/wasm-large-project/`.
+`build/wasm-large-project/` and `build/wasm64-large-project/`.
 
-The initial target is wasm32 with one statically linked ObjC image. wasm64,
-dynamic loading/unloading of business-class images, Swift interoperation,
+The targets are wasm32 and wasm64 with one statically linked ObjC image.
+Dynamic loading/unloading of business-class images, Swift interoperation,
 Foundation and Apple frameworks are outside this port's current scope. The
 bootstrap's host manifest currently contains only macOS arm64.

@@ -1,8 +1,24 @@
 include_guard(GLOBAL)
 
-if(NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
-    message(FATAL_ERROR "The current objc4 WebAssembly adapters require wasm32.")
+# Emscripten's toolchain selects wasm64 when CMAKE_C_FLAGS contains
+# -sMEMORY64, -m64 or --target=wasm64, and reports it through
+# CMAKE_SIZEOF_VOID_P. Runtime-generated adapter modules cannot pass through
+# wasm-opt, so only native memory64/table64 (MEMORY64=1) is supported.
+if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+    set(OBJC_WASM_MEMORY64 ON)
+    set(OBJC_WASM_ARCH wasm64)
+elseif(CMAKE_SIZEOF_VOID_P EQUAL 4)
+    set(OBJC_WASM_MEMORY64 OFF)
+    set(OBJC_WASM_ARCH wasm32)
+else()
+    message(FATAL_ERROR "Unsupported WebAssembly pointer size: ${CMAKE_SIZEOF_VOID_P}")
 endif()
+foreach(flags IN ITEMS CMAKE_C_FLAGS CMAKE_CXX_FLAGS CMAKE_EXE_LINKER_FLAGS)
+    if("${${flags}}" MATCHES "MEMORY64=2")
+        message(FATAL_ERROR "objc4 requires -sMEMORY64=1; lowered MEMORY64=2 is unsupported.")
+    endif()
+endforeach()
+message(STATUS "objc4 WebAssembly target: ${OBJC_WASM_ARCH}")
 
 set(CMAKE_OBJC_COMPILER "${CMAKE_C_COMPILER}")
 set(CMAKE_OBJCXX_COMPILER "${CMAKE_CXX_COMPILER}")
@@ -62,6 +78,12 @@ target_compile_options(objc PRIVATE
     -fno-objc-convert-messages-to-runtime-calls -fno-rtti -fvisibility=hidden
     -Wno-deprecated-declarations -Wno-unused-command-line-argument)
 target_compile_options(objc PUBLIC -mtail-call -fwasm-exceptions -fPIC)
+if(OBJC_WASM_MEMORY64)
+    # CMAKE_OBJC_FLAGS and CMAKE_OBJCXX_FLAGS do not inherit CMAKE_C_FLAGS.
+    # Propagate the target to every Objective-C consumer and the final link.
+    target_compile_options(objc PUBLIC -sMEMORY64=1)
+    target_link_options(objc INTERFACE -sMEMORY64=1)
+endif()
 get_filename_component(wasm_toolchain_root "$ENV{EM_CONFIG}" DIRECTORY)
 if(EXISTS "${wasm_toolchain_root}/build-fingerprint")
     file(READ "${wasm_toolchain_root}/build-fingerprint" wasm_toolchain_fingerprint)
@@ -109,6 +131,9 @@ if(OBJC_BUILD_WASM_TESTS)
     if(OBJC_WASM_THREADS)
         list(APPEND wasm_tests threads)
     endif()
+    if(OBJC_WASM_MEMORY64)
+        list(APPEND wasm_tests memory64)
+    endif()
     foreach(test IN LISTS wasm_tests)
         if(test STREQUAL smoke)
             set(extension m)
@@ -122,6 +147,12 @@ if(OBJC_BUILD_WASM_TESTS)
         objc4_add_wasm_module(objc4-wasm-${test})
         target_compile_options(objc4-wasm-${test} PRIVATE -fobjc-arc -UNDEBUG)
         target_link_options(objc4-wasm-${test} PRIVATE -sEXIT_RUNTIME=1)
+        if(test STREQUAL memory64)
+            # Place static data, the stack and the heap above the 32-bit
+            # address range. The reserved space below is never touched.
+            target_link_options(objc4-wasm-${test} PRIVATE -sGLOBAL_BASE=4294967296
+                -sINITIAL_MEMORY=4362076160 -sMAXIMUM_MEMORY=8589934592)
+        endif()
         if(OBJC_WASM_THREADS)
             target_link_options(objc4-wasm-${test} PRIVATE -sPTHREAD_POOL_SIZE=5 -sPROXY_TO_PTHREAD=1)
         endif()

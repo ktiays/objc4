@@ -129,7 +129,7 @@
 //   _tryRetain/_isDeallocating/retainWeakReference/allowsWeakReference
 #define FAST_HAS_DEFAULT_RR     (1UL<<2)
 // data pointer
-#if defined(_WIN32)
+#if defined(_WIN32) || defined(__wasm__)
 #define FAST_DATA_MASK          (~uintptr_t(7))
 #define DEBUG_DATA_MASK         FAST_DATA_MASK
 #elif defined(__ANDROID__)
@@ -153,7 +153,7 @@ static_assert((OBJC_VM_MAX_ADDRESS & FAST_DATA_MASK)
 #define FAST_FLAGS_MASK         0x0000000000000007UL
 
 // this bit tells us *quickly* that it's a pointer to an rw, not an ro
-#if defined(__ANDROID__) || defined(_WIN32)
+#if defined(__ANDROID__) || defined(_WIN32) || defined(__wasm__)
 #define FAST_IS_RW_POINTER      0
 #else
 #define FAST_IS_RW_POINTER      0x8000000000000000UL

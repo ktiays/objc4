@@ -473,7 +473,8 @@ OBJC_EXPORT void _objc_setHook_msgSendCacheMiss(
 
 // Tagged pointer objects.
 
-#if (__SIZEOF_POINTER__ == 8) && !defined(__ANDROID__) && !defined(_WIN32)
+#if (__SIZEOF_POINTER__ == 8) && !defined(__ANDROID__) && !defined(_WIN32) && \
+    !defined(__wasm__)
 #define OBJC_HAVE_TAGGED_POINTERS 1
 #endif
 
@@ -1312,7 +1313,7 @@ OBJC_EXPORT void _objc_addWillInitializeClassFunc(_objc_func_willInitializeClass
     OBJC_AVAILABLE(10.15, 13.0, 13.0, 6.0, 4.0);
 
 // Replicate the conditionals in objc-config.h for packed isa, indexed isa, and preopt caches
-#if defined(__ANDROID__) || defined(_WIN32)
+#if defined(__ANDROID__) || defined(_WIN32) || defined(__wasm__)
 #define OBJC_WEAK_FORMATION_CALLOUT_DEFINED 0
 #elif __ARM_ARCH_7K__ >= 2  ||  (__arm64__ && (__SIZEOF_POINTER__ != 8)) || \
     !((__SIZEOF_POINTER__ != 8)  ||  \

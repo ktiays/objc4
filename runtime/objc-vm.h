@@ -53,7 +53,13 @@
 #  define PAGE_MIN_SIZE   4096
 #  define PAGE_MAX_SIZE   4096
 #  define PAGE_MAX_SHIFT  12
-#  define OBJC_VM_MAX_ADDRESS  (~(uintptr_t)3)
+#  if __SIZEOF_POINTER__ == 8
+// memory64 addresses are byte offsets into linear memory. Engines cap a
+// memory far below 2^48 bytes; keep the upper bits clear for metadata masks.
+#    define OBJC_VM_MAX_ADDRESS  0x0000fffffffffff8ULL
+#  else
+#    define OBJC_VM_MAX_ADDRESS  (~(uintptr_t)3)
+#  endif
 #elif defined(__ANDROID__)
 // Runtime allocation pages, not a claim about the kernel's mmap page size.
 // Android VM operations must query sysconf(_SC_PAGESIZE).
