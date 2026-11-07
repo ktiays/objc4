@@ -1,0 +1,82 @@
+Emit wasm32 constant CFStrings with the CoreFoundation info-word header
+
+On LP64 Darwin a constant CFString's int flags and the padding before its
+string pointer form the 64-bit info word CoreFoundation reads at offset 8.
+With 32-bit pointers the flags are the 64-bit word itself and the literal
+is 8-byte aligned, so CoreFoundation reads the same header on wasm32.
+
+diff -ru a/clang/lib/AST/ASTContext.cpp b/clang/lib/AST/ASTContext.cpp
+--- a/clang/lib/AST/ASTContext.cpp	2026-11-07 02:12:04
++++ b/clang/lib/AST/ASTContext.cpp	2026-11-07 02:12:04
+@@ -8596,6 +8596,21 @@
+   ///      long length;
+   ///    } __NSConstantString;
+   ///
++  /// Objective-C ABI on wasm32 (Apple Objective-C ABI port)
++  ///
++  ///    typedef struct __NSConstantString_tag {
++  ///      const int *isa;
++  ///      long long flags;
++  ///      const char *str;
++  ///      long length;
++  ///    } __NSConstantString;
++  ///
++  ///   The CoreFoundation object header is an isa followed by a 64-bit info
++  ///   word at offset 8, as on LP64 Darwin, where the int flags and the
++  ///   padding before the string pointer form that word. With 32-bit pointers
++  ///   the flags are the 64-bit word itself, so the literal keeps the header
++  ///   CoreFoundation reads.
++  ///
+   /// Swift ABI (4.1, 4.2)
+   ///
+   ///    typedef struct __NSConstantString_tag {
+@@ -8619,8 +8634,11 @@
+   const auto CFRuntime = getLangOpts().CFRuntime;
+   if (static_cast<unsigned>(CFRuntime) <
+       static_cast<unsigned>(LangOptions::CoreFoundationABI::Swift)) {
++    const bool Wasm32InfoHeader =
++        Target->getTriple().isWasm() &&
++        Target->getPointerWidth(LangAS::Default) == 32;
+     Fields[Count++] = { getPointerType(IntTy.withConst()), "isa" };
+-    Fields[Count++] = { IntTy, "flags" };
++    Fields[Count++] = { Wasm32InfoHeader ? LongLongTy : IntTy, "flags" };
+     Fields[Count++] = { getPointerType(CharTy.withConst()), "str" };
+     Fields[Count++] = { LongTy, "length" };
+   } else {
+diff -ru a/clang/lib/CodeGen/CodeGenModule.cpp b/clang/lib/CodeGen/CodeGenModule.cpp
+--- a/clang/lib/CodeGen/CodeGenModule.cpp	2026-11-07 02:12:04
++++ b/clang/lib/CodeGen/CodeGenModule.cpp	2026-11-07 02:12:04
+@@ -7354,6 +7354,11 @@
+       static_cast<unsigned>(CFRuntime) >=
+       static_cast<unsigned>(LangOptions::CoreFoundationABI::Swift);
+   const bool IsSwift4_1 = CFRuntime == LangOptions::CoreFoundationABI::Swift4_1;
++  // wasm32: the flags are the 64-bit CoreFoundation info word at offset 8 and
++  // the literal is 8-byte aligned (ASTContext::getCFConstantStringDecl).
++  const bool IsWasm32InfoHeader =
++      !IsSwiftABI && Triple.isWasm() &&
++      Context.getTargetInfo().getPointerWidth(LangAS::Default) == 32;
+ 
+   // If we don't already have it, get __CFConstantStringClassReference.
+   if (!CFConstantStringClassRef) {
+@@ -7436,7 +7441,8 @@
+     Fields.addInt(IntPtrTy, IsSwift4_1 ? 0x05 : 0x01);
+     Fields.addInt(Int64Ty, isUTF16 ? 0x07d0 : 0x07c8);
+   } else {
+-    Fields.addInt(IntTy, isUTF16 ? 0x07d0 : 0x07C8);
++    Fields.addInt(IsWasm32InfoHeader ? Int64Ty : IntTy,
++                  isUTF16 ? 0x07d0 : 0x07C8);
+   }
+ 
+   // String pointer.
+@@ -7491,8 +7497,9 @@
+ 
+   // Swift ABI requires 8-byte alignment to ensure that the _Atomic(uint64_t) is
+   // properly aligned on 32-bit platforms.
+-  CharUnits Alignment =
+-      IsSwiftABI ? Context.toCharUnitsFromBits(64) : getPointerAlign();
++  CharUnits Alignment = IsSwiftABI || IsWasm32InfoHeader
++                            ? Context.toCharUnitsFromBits(64)
++                            : getPointerAlign();
+ 
+   // The struct.
+   GV = Fields.finishAndCreateGlobal("_unnamed_cfstring_", Alignment,

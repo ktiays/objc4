@@ -123,6 +123,19 @@ Objective-C implicit arguments, as required by Wasm's strict function types.
 The native instruction-inspection autorelease-return optimization is disabled
 on Wasm; ordinary retain/autorelease semantics remain active.
 
+## Constant strings
+
+`@"..."` literals and `CFSTR` constants use Apple's constant CFString record with
+`__CFConstantStringClassReference` as the class. On LP64 Darwin the record's `int`
+flags and the padding before its string pointer form the 64-bit info word a
+CoreFoundation object header carries at offset 8. On wasm32 the compiler patch
+(`0002-wasm32-cfstring-info-header.patch`) makes the flags that 64-bit word and
+aligns the record to eight bytes, so the record is
+`{isa, padding, 0x7c8 or 0x7d0, string, length}` (24 bytes) and a CoreFoundation
+built for the LP64 header reads it unchanged. wasm64 has the LP64 layout already.
+Every Objective-C and CoreFoundation object in a process must agree on the record,
+so objects compiled before this patch must be rebuilt.
+
 ## Forwarding and Block IMPs
 
 Fast forwarding calls `forwardingTargetForSelector:`. The full forwarding channel
