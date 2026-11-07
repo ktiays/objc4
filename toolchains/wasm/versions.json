@@ -14,6 +14,11 @@
       "url": "https://storage.googleapis.com/webassembly/emscripten-releases-builds/mac/eb132757325583b787fe9414b09afea9442b72ad/wasm-binaries-arm64.tar.xz",
       "archive": "emscripten-6.0.13-macos-arm64.tar.xz",
       "sha256": "3d8ced05935fbef5b3edda4252dce260004860bf8d579617f13d417338aa4cac"
+    },
+    "Linux-x86_64": {
+      "url": "https://storage.googleapis.com/webassembly/emscripten-releases-builds/linux/eb132757325583b787fe9414b09afea9442b72ad/wasm-binaries.tar.xz",
+      "archive": "emscripten-6.0.13-linux-x86_64.tar.xz",
+      "sha256": "cda6801012ff3319a539111826ed02a9abd7eff135c2ef261c8941caf5a3763e"
     }
   }
 }

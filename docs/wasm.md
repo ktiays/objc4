@@ -8,8 +8,10 @@ not require libobjc2 or Foundation.
 
 ## Build
 
-The bootstrap currently supports macOS arm64. Install CMake, Ninja, Python 3.12+
-and Node.js. Node 25.9.0 was used for validation.
+The bootstrap supports macOS arm64 and Linux x86_64 hosts. Install CMake, Ninja,
+Python 3.12+, Node.js and, on Linux, a host C++ compiler and git. Node 25.9.0 was
+used for validation on macOS. On Linux (Arch, GCC 16.2, Node 26.13.0) the eight
+configurations and both large-project fixtures pass with the same test counts.
 
 ```sh
 python3 scripts/prepare-wasm-toolchain.py --jobs 8
@@ -219,4 +221,4 @@ state, not projections for an arbitrary production project. Results and logs liv
 The targets are wasm32 and wasm64 with one statically linked ObjC image.
 Dynamic loading/unloading of business-class images, Swift interoperation,
 Foundation and Apple frameworks are outside this port's current scope. The
-bootstrap's host manifest currently contains only macOS arm64.
+bootstrap's host manifest contains macOS arm64 and Linux x86_64.
